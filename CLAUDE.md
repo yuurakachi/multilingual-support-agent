@@ -44,7 +44,7 @@ Also:
 
 ## Phases
 
-Phases 0-5 (text agent) and phase 6 are complete. **Next: phase 7.** The eval system built on the conversation logs is still planned for after the voice channel.
+Phases 0-5 (text agent) and phase 6 are complete. **Phase 7 is waiting for the owner to choose providers; phase 8 comes after that.** The eval system built on the conversation logs is still planned for after the voice channel.
 
 ### Text agent
 
@@ -63,7 +63,12 @@ Phases 0-5 (text agent) and phase 6 are complete. **Next: phase 7.** The eval sy
 ### Voice channel (branch `voice`)
 
 6. (done) Separate the brain from the interface: the agent core no longer depends on the channel. The text CLI works exactly as before.
-7. **(next)** Provider research, no code: propose 2-3 STT and 2-3 TTS options, at least one local or free. Comparison table: quality in Spanish/Japanese/English, latency, approximate cost, whether it runs on Windows, ease of integration. Give a recommendation and wait for the owner to choose.
+7. **(research presented 2026-10-06, waiting for the owner to choose)** Provider research, no code: propose 2-3 STT and 2-3 TTS options, at least one local or free. Comparison table: quality in Spanish/Japanese/English, latency, approximate cost, whether it runs on Windows, ease of integration. Give a recommendation and wait for the owner to choose.
+   - STT shortlist: Groq `whisper-large-v3-turbo` (free tier, fastest, OpenAI-compatible API, returns the detected language), OpenAI `gpt-4o-mini-transcribe` / `gpt-transcribe` (paid, no detected language), local `faster-whisper` (free, offline; on this CPU `small` is usable, `large-v3-turbo` is slower than real time).
+   - TTS shortlist: OpenAI `gpt-4o-mini-tts` (paid, one voice for all three languages, WAV/PCM output), `edge-tts` (free, unofficial Microsoft endpoint, native neural voice per language, MP3 only), Windows SAPI voices (local, free, robotic; es-MX, en-US and ja-JP are already installed on the owner's machine).
+   - Recommendation given: Groq for STT + OpenAI for TTS, both behind a small interface so a provider can be swapped from `.env`. Zero-cost alternative: Groq + `edge-tts`.
+   - Owner's machine: Ryzen 7 4700U (8 cores), 15 GB RAM, no NVIDIA GPU, about 23 GB free disk. Local models run on CPU only.
+   - **The owner's choice is not recorded yet. Do not start phase 8 without it.**
 8. Basic voice loop: push-to-talk in the terminal (press a key, speak, release, the agent answers with audio), working on Windows. Add a voice mode to the system prompt: short, conversational answers, no Markdown or lists, numbers and IDs written so they read well aloud.
 9. Measure latency: per turn, log the time of each stage (STT, LLM including tool calls, TTS, total) in the JSON logs, plus a script that prints average and worst case per stage.
 10. Voice-specific problems: the agent repeats and confirms key data (order numbers, emails) before using tools, because dictation garbles them; empty audio, noise or unintelligible transcripts make it ask the customer to repeat; test audio files generated with the TTS from the existing scenarios in the three languages, and a script that runs them through the whole pipeline without a microphone.
