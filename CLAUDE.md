@@ -25,7 +25,7 @@ Work phase by phase. At the end of each phase: run the tests, commit, push to Gi
 ## Phases
 
 0. Repo setup (done)
-1. SQLite data (~20 customers, ~50 orders; statuses `processing`, `shipped`, `delivered`, `cancelled`) and tools, each with tests:
+1. (done) SQLite data (~20 customers, ~50 orders; statuses `processing`, `shipped`, `delivered`, `cancelled`) and tools, each with tests:
    - `get_order_status(order_id, email)`
    - `update_shipping_address(order_id, email, new_address)` — only if the order has not shipped
    - `request_refund(order_id, email, reason)` — only within 30 days after delivery
@@ -41,12 +41,21 @@ Work phase by phase. At the end of each phase: run the tests, commit, push to Gi
 ```bash
 .venv\Scripts\activate
 pip install -r requirements.txt
+python -m support_agent.seed   # rebuild data/store.db from scratch
 pytest
 ```
 
 ## Layout
 
-- `support_agent/` — agent source code
+- `support_agent/db.py` — SQLite connection and schema
+- `support_agent/seed.py` — deterministic simulated data; ORD-1001..ORD-1008 are hand-picked anchor orders with a known state
+- `support_agent/tools.py` — the five support tools
 - `tests/` — unit tests
 - `data/` — SQLite database (generated, git-ignored)
 - `logs/` — conversation logs (generated, git-ignored)
+
+## Conventions
+
+- Tools take the SQLite connection as first argument and return a dict: `{"ok": True, ...}` or `{"ok": False, "error_code", "message"}`. Error codes are stable identifiers the evals will rely on; do not rename them casually.
+- Date-dependent tools accept a keyword-only `now` so tests never depend on the real clock.
+- Tool unit tests use the small hand-written store in `tests/conftest.py`, not the seed data.
