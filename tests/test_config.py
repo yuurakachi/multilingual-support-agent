@@ -37,3 +37,15 @@ def test_optional_settings():
 def test_invalid_optional_settings_are_rejected(env):
     with pytest.raises(ConfigError):
         Settings.from_env({"ANTHROPIC_MODEL": "m", **env})
+
+
+def test_no_model_name_is_hardcoded_in_the_package():
+    """The model must come from .env, so no source file may name one."""
+    from support_agent.config import PROJECT_ROOT
+
+    offenders = [
+        path.name
+        for path in (PROJECT_ROOT / "support_agent").glob("*.py")
+        if "claude-" in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == []
