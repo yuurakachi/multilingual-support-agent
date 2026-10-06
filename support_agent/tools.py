@@ -14,12 +14,16 @@ the problem to the customer and the logs record exactly what happened.
 from __future__ import annotations
 
 import functools
+import re
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 
 CURRENCY = "USD"
 MAX_ADDRESS_LENGTH = 300
 REFUND_WINDOW_DAYS = 30
+MAX_TEXT_LENGTH = 2000
+
+_EMAIL_PATTERN = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 
 
 def _error(code: str, message: str, **details) -> dict:
@@ -38,8 +42,9 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _refund_id(row_id: int) -> str:
-    return f"RF-{row_id:04d}"
+def _public_id(prefix: str, row_id: int) -> str:
+    """Customer-facing reference such as RF-0001 or TKT-0012."""
+    return f"{prefix}-{row_id:04d}"
 
 
 def _tool(func):
@@ -218,7 +223,7 @@ def request_refund(
         return _error(
             "refund_already_requested",
             "A refund has already been requested for this order.",
-            refund_id=_refund_id(existing["id"]),
+            refund_id=_public_id("RF", existing["id"]),
             refund_status=existing["status"],
         )
 
@@ -243,10 +248,67 @@ def request_refund(
         )
     return {
         "ok": True,
-        "refund_id": _refund_id(cursor.lastrowid),
+        "refund_id": _public_id("RF", cursor.lastrowid),
         "order_id": order["id"],
         "status": "requested",
         "amount": _money(amount_cents),
         "currency": CURRENCY,
         "days_since_delivery": days_since_delivery,
+    }
+
+
+@_tool
+def create_support_ticket(
+    conn: sqlite3.Connection, email: str, summary: str, *, now: datetime | None = None
+) -> dict:
+    """Open a ticket for the support team to follow up by email."""
+    if not _is_text(email) or not _EMAIL_PATTERN.fullmatch(email.strip()):
+        return _error("invalid_input", "A valid email address is required to open a ticket.")
+    if not _is_text(summary):
+        return _error("invalid_input", "A summary of the problem is required.")
+    if len(summary.strip()) > MAX_TEXT_LENGTH:
+        return _error(
+            "invalid_input", f"The summary is too long (maximum {MAX_TEXT_LENGTH} characters)."
+        )
+
+    email = email.strip().lower()
+    # Anyone can open a ticket; it is linked to a customer when the email is known.
+    customer = conn.execute("SELECT id FROM customers WHERE email = ?", (email,)).fetchone()
+    now = now or _utc_now()
+    with conn:
+        cursor = conn.execute(
+            "INSERT INTO support_tickets (customer_id, email, summary, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (customer["id"] if customer else None, email, summary.strip(), now.isoformat()),
+        )
+    return {
+        "ok": True,
+        "ticket_id": _public_id("TKT", cursor.lastrowid),
+        "status": "open",
+        "email": email,
+    }
+
+
+@_tool
+def escalate_to_human(
+    conn: sqlite3.Connection, reason: str, *, now: datetime | None = None
+) -> dict:
+    """Hand the conversation over to a human agent."""
+    if not _is_text(reason):
+        return _error("invalid_input", "A reason for the escalation is required.")
+    if len(reason.strip()) > MAX_TEXT_LENGTH:
+        return _error(
+            "invalid_input", f"The reason is too long (maximum {MAX_TEXT_LENGTH} characters)."
+        )
+
+    now = now or _utc_now()
+    with conn:
+        cursor = conn.execute(
+            "INSERT INTO escalations (reason, created_at) VALUES (?, ?)",
+            (reason.strip(), now.isoformat()),
+        )
+    return {
+        "ok": True,
+        "escalation_id": _public_id("ESC", cursor.lastrowid),
+        "status": "queued",
     }
