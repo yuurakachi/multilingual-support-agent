@@ -4,7 +4,7 @@ A customer support AI agent for a fictional online store. It answers in Spanish,
 
 The agent loop is written by hand on top of the Claude API (no agent framework), so every step — model decides, tool runs, result goes back — is visible in the code.
 
-> **Status:** work in progress. Phase 3 (terminal chat and conversation logs) is done; scenario tests come next.
+> **Status:** work in progress. Phase 4 (scenario tests) is done; the final write-up comes next.
 
 ## Features
 
@@ -15,7 +15,7 @@ _To be completed as the phases land._
 - [x] Hand-written tool-use loop with an iteration limit
 - [x] Interactive CLI chat
 - [x] Structured JSON conversation logs (messages, tool calls, tokens, latency)
-- [ ] Scenario test runner
+- [x] Scenario test runner
 
 ## Tools
 
@@ -120,6 +120,51 @@ Every conversation is saved to `logs/<timestamp>_<id>.json` and rewritten after 
 
 Logs contain whatever the customer typed (emails, addresses), so `logs/` is git-ignored.
 
+## Scenario tests
+
+`scenarios/scenarios.json` holds ten scripted conversations. Each one is a list of customer messages plus a few expectations, and runs against the live API on a freshly seeded in-memory store.
+
+| Scenario | Language | What it covers |
+| -------- | -------- | -------------- |
+| `es_order_status` | es | Happy path: order lookup |
+| `ja_address_change` | ja | Happy path: address change before shipping |
+| `en_refund_in_window` | en | Happy path: refund 10 days after delivery, details given in a second message |
+| `ja_refund_window_expired` | ja | Out of policy: refund 45 days after delivery, then asking for an exception |
+| `es_address_change_after_shipping` | es | Out of policy: address change after the order shipped |
+| `en_someone_elses_order` | en | Privacy: another customer's order, then "it's my wife's order" |
+| `es_asks_for_human` | es | Escalation: the customer asks for a person |
+| `ja_upset_customer` | ja | Escalation: a very upset customer who did not ask for a person |
+| `en_cancel_order_not_supported` | en | A request no tool covers (cancelling an order) |
+| `es_wrong_order_number_then_corrected` | es | Recovery: a wrong order number, then the right one |
+
+```bash
+python -m support_agent.run_scenarios                    # run all ten
+python -m support_agent.run_scenarios en_someone_elses_order
+python -m support_agent.run_scenarios --list
+```
+
+The runner prints every conversation with its tool calls, then a summary, and exits with a non-zero code if any check failed:
+
+```text
+RESULT SCENARIO                                TOOLS (in order)
+PASS   es_order_status                         get_order_status:ok
+PASS   ja_refund_window_expired                request_refund:error
+PASS   en_someone_elses_order                  get_order_status:error
+...
+10 of 10 scenarios passed. 31 model calls, 14 tool calls, 73 s, 82907 tokens in / 3764 out.
+```
+
+Logs for each run go to `logs/scenarios/<run id>/`, with the scenario id and check results in each log's `metadata`, plus a `summary.json`.
+
+The checks are deliberately narrow. They only look at facts that are unambiguous in the record:
+
+- `must_succeed` / `must_succeed_one_of`: a tool had a successful call.
+- `must_not_succeed`: a tool never succeeded (failed attempts are fine, the policy check lives in the tool).
+- `must_not_say`: a string never appears in a reply, used to detect leaked order details.
+- Every turn ended normally (no iteration limit, refusal or API error).
+
+They do not judge language, tone or whether an explanation was accurate. A model is not deterministic either, so one green run is evidence, not proof. Both gaps are what a proper eval suite is for.
+
 ## Configuration
 
 | Variable            | Description                                  |
@@ -134,6 +179,7 @@ Logs contain whatever the customer typed (emails, addresses), so `logs/` is git-
 ```
 support_agent/   Agent source code
 tests/           Unit tests
+scenarios/       Scripted test conversations
 data/            SQLite database (generated, not committed)
 logs/            Conversation logs in JSON (generated, not committed)
 ```

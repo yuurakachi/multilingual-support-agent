@@ -33,7 +33,7 @@ Work phase by phase. At the end of each phase: run the tests, commit, push to Gi
    - `escalate_to_human(reason)`
 2. (done) Agent loop and system prompt with store policies: verify identity (order number + email) before giving or changing information; always answer in the customer's language; never invent information or promise anything outside policy; escalate to a human if the customer asks, is very upset, or the tools do not cover the case.
 3. (done) Interactive CLI and JSON conversation logging.
-4. Ten scenario conversations (mixed languages: happy paths, out-of-policy requests, a customer trying to see someone else's order, a customer asking for a human) and a script that runs them and reports what happened.
+4. (done) Ten scenario conversations (mixed languages: happy paths, out-of-policy requests, a customer trying to see someone else's order, a customer asking for a human) and a script that runs them and reports what happened.
 5. Final README: what it does, Mermaid architecture diagram, how to run, design decisions and trade-offs, known limitations.
 
 ## Commands
@@ -44,6 +44,7 @@ pip install -r requirements.txt
 python -m support_agent.seed   # rebuild data/store.db from scratch
 pytest
 python -m support_agent        # interactive chat against the live API (--reset-db, --quiet)
+python -m support_agent.run_scenarios   # ten scripted conversations against the live API (costs ~$0.12 per full run)
 ```
 
 ## Layout
@@ -57,6 +58,9 @@ python -m support_agent        # interactive chat against the live API (--reset-
 - `support_agent/agent.py` — `SupportAgent.reply()`, the hand-written loop; returns `AgentReply` (text, stop_reason, iterations, latency_ms, model_calls, tool_calls, usage, error). `build_agent(conn, settings)` creates the live one
 - `support_agent/conversation_log.py` — `ConversationLog`: one JSON file per conversation (`record_turn`, `save(transcript)`); accepts free-form `metadata`
 - `support_agent/cli.py` + `__main__.py` — terminal chat; `run_chat` takes injectable `read`/`write` so tests can script it
+- `scenarios/scenarios.json` — the ten scripted conversations and their expectations
+- `support_agent/scenarios.py` — loading/validating scenarios, `check_expectations`, `run_scenario` (fresh in-memory seeded store per scenario)
+- `support_agent/run_scenarios.py` — runner CLI: prints each conversation, writes `logs/scenarios/<run id>/` with `summary.json`
 - `tests/` — unit tests; `tests/fakes.py` has the scripted `FakeClient` and response builders
 - `data/` — SQLite database (generated, git-ignored)
 - `logs/` — conversation logs (generated, git-ignored)
@@ -73,3 +77,6 @@ python -m support_agent        # interactive chat against the live API (--reset-
 - `SupportAgent.reply()` does not raise on API failures: it returns `stop_reason="api_error"` with `reply.error` set, so the turn is still logged.
 - The log format is a contract for the evals: bump `SCHEMA_VERSION` in `conversation_log.py` when a field is renamed or removed. Adding fields is fine.
 - On this project the API client must be created after `load_settings()` (which loads `.env`); see `build_agent`.
+- Scenario checks stay deterministic and narrow (tool outcomes, forbidden strings). Judging language, tone or accuracy belongs to the future eval system, not to `check_expectations`.
+- Scenarios depend on the anchor orders ORD-1001..ORD-1008 in `seed.py`; a test fails if a scenario mentions an order or email the seed does not have.
+- Do not tune the system prompt just to make a scenario pass without telling the owner; a failing scenario is information.
