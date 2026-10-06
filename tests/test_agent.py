@@ -3,7 +3,7 @@
 import json
 
 from conftest import ALICE, YUKI
-from fakes import FakeClient, response, text, thinking, tool_use
+from fakes import FailingClient, FakeClient, response, text, thinking, tool_use
 
 from support_agent.agent import FALLBACK_MESSAGE, SupportAgent
 from support_agent.config import Settings
@@ -300,24 +300,6 @@ def test_records_model_calls_tool_calls_and_latency(conn):
 
     # The whole turn takes at least as long as its parts.
     assert reply.latency_ms >= 1500
-
-
-def api_connection_error():
-    import anthropic
-    import httpx2
-
-    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
-    return anthropic.APIConnectionError(message="Connection error.", request=request)
-
-
-class FailingClient(FakeClient):
-    """Returns its scripted responses, then fails like a dropped connection."""
-
-    def _create(self, **request):
-        if not self._responses:
-            self.requests.append(request)
-            raise api_connection_error()
-        return super()._create(**request)
 
 
 def test_api_failure_becomes_a_reply_instead_of_an_exception(conn):

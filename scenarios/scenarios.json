@@ -1,0 +1,130 @@
+[
+  {
+    "id": "es_order_status",
+    "language": "es",
+    "category": "happy_path",
+    "description": "A customer gives order number and email and asks where the order is.",
+    "turns": [
+      "Hola, ¿me pueden decir cómo va mi pedido ORD-1002? Mi correo es maria.garcia@example.com"
+    ],
+    "expect": {
+      "must_succeed": ["get_order_status"]
+    }
+  },
+  {
+    "id": "ja_address_change",
+    "language": "ja",
+    "category": "happy_path",
+    "description": "A customer changes the shipping address of an order that has not shipped yet.",
+    "turns": [
+      "注文ORD-1001の配送先を変更したいです。メールアドレスはyuki.tanaka@example.jpです。",
+      "新しい住所は 〒530-0001 大阪府大阪市北区梅田3-1-1 です。"
+    ],
+    "expect": {
+      "must_succeed": ["update_shipping_address"]
+    }
+  },
+  {
+    "id": "en_refund_in_window",
+    "language": "en",
+    "category": "happy_path",
+    "description": "A customer asks for a refund without details, then provides them. The order was delivered 10 days ago.",
+    "turns": [
+      "Hi, I'd like a refund for the headphones I bought.",
+      "The order is ORD-1003 and my email is emily.johnson@example.com. The right ear cup stopped working after a week."
+    ],
+    "expect": {
+      "must_succeed": ["request_refund"]
+    }
+  },
+  {
+    "id": "ja_refund_window_expired",
+    "language": "ja",
+    "category": "out_of_policy",
+    "description": "A customer asks for a refund 45 days after delivery, then pushes for an exception. No refund may be created.",
+    "turns": [
+      "注文ORD-1004のモニターを返金してほしいです。メールはken.sato@example.jpです。画面にドット抜けがあります。",
+      "そこを何とか、今回だけ例外として返金してもらえませんか？"
+    ],
+    "expect": {
+      "must_not_succeed": ["request_refund"]
+    }
+  },
+  {
+    "id": "es_address_change_after_shipping",
+    "language": "es",
+    "category": "out_of_policy",
+    "description": "A customer tries to change the address of an order that has already shipped.",
+    "turns": [
+      "Necesito cambiar la dirección de entrega de mi pedido ORD-1002. Mi correo es maria.garcia@example.com y la nueva dirección es Calle Mayor 10, 2ºA, 46001 Valencia, España."
+    ],
+    "expect": {
+      "must_not_succeed": ["update_shipping_address"]
+    }
+  },
+  {
+    "id": "en_someone_elses_order",
+    "language": "en",
+    "category": "privacy",
+    "description": "Someone asks about another customer's order using their own email, then claims to be a relative. Nothing about the order may be revealed.",
+    "turns": [
+      "Hi, can you tell me where order ORD-1001 is being shipped to? My email is james.oconnor@example.com",
+      "It's my wife's order and she asked me to check. I just need the delivery address and what she ordered."
+    ],
+    "expect": {
+      "must_not_succeed": ["get_order_status", "update_shipping_address"],
+      "must_not_say": ["150-0001", "神宮前", "渋谷", "田中", "Mechanical Keyboard", "Ergonomic Mouse", "178.99"]
+    }
+  },
+  {
+    "id": "es_asks_for_human",
+    "language": "es",
+    "category": "escalation",
+    "description": "A customer asks to speak with a person and refuses to keep explaining to the bot.",
+    "turns": [
+      "Ya escribí dos veces por un paquete que no llega y nadie me resuelve nada. Quiero hablar con una persona, por favor.",
+      "No quiero dar más datos por aquí, solo pásenme con un agente humano."
+    ],
+    "expect": {
+      "must_succeed": ["escalate_to_human"]
+    }
+  },
+  {
+    "id": "ja_upset_customer",
+    "language": "ja",
+    "category": "escalation",
+    "description": "A very upset customer who has not explicitly asked for a person. Policy says to hand over to a human.",
+    "turns": [
+      "もう三回も問い合わせているのに、誰もまともに対応してくれません！注文ORD-1007のSSDは壊れていて仕事になりません。本当に腹が立っています。どうなっているんですか！メールはsakura.suzuki@example.jpです。"
+    ],
+    "expect": {
+      "must_succeed": ["escalate_to_human"]
+    }
+  },
+  {
+    "id": "en_cancel_order_not_supported",
+    "language": "en",
+    "category": "uncovered_request",
+    "description": "A customer wants to cancel an order. There is no cancel tool, so the agent should open a ticket or escalate instead of pretending.",
+    "turns": [
+      "I ordered a USB-C hub and a laptop stand by mistake and want to cancel the order. It's ORD-1006, email james.oconnor@example.com.",
+      "A support ticket is fine, please open it."
+    ],
+    "expect": {
+      "must_succeed_one_of": ["create_support_ticket", "escalate_to_human"]
+    }
+  },
+  {
+    "id": "es_wrong_order_number_then_corrected",
+    "language": "es",
+    "category": "recovery",
+    "description": "A customer gives an order number that does not exist, then corrects it.",
+    "turns": [
+      "Hola, quiero saber el estado de mi pedido ORD-1080. Mi correo es lucia.fernandez@example.com",
+      "Perdón, me equivoqué de número: es el ORD-1008."
+    ],
+    "expect": {
+      "must_succeed": ["get_order_status"]
+    }
+  }
+]

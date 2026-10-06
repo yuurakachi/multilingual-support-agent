@@ -23,10 +23,9 @@ venv/
 data/*.db
 data/*.sqlite3
 
-# Generated conversation logs
-logs/*.json
-logs/*.jsonl
-logs/*.tmp
+# Generated conversation logs (everything in logs/ except the placeholder)
+logs/*
+!logs/.gitkeep
 
 # Editors / OS
 .vscode/
