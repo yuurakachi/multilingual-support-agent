@@ -32,7 +32,7 @@ Work phase by phase. At the end of each phase: run the tests, commit, push to Gi
    - `create_support_ticket(email, summary)`
    - `escalate_to_human(reason)`
 2. (done) Agent loop and system prompt with store policies: verify identity (order number + email) before giving or changing information; always answer in the customer's language; never invent information or promise anything outside policy; escalate to a human if the customer asks, is very upset, or the tools do not cover the case.
-3. Interactive CLI and JSON conversation logging.
+3. (done) Interactive CLI and JSON conversation logging.
 4. Ten scenario conversations (mixed languages: happy paths, out-of-policy requests, a customer trying to see someone else's order, a customer asking for a human) and a script that runs them and reports what happened.
 5. Final README: what it does, Mermaid architecture diagram, how to run, design decisions and trade-offs, known limitations.
 
@@ -43,6 +43,7 @@ Work phase by phase. At the end of each phase: run the tests, commit, push to Gi
 pip install -r requirements.txt
 python -m support_agent.seed   # rebuild data/store.db from scratch
 pytest
+python -m support_agent        # interactive chat against the live API (--reset-db, --quiet)
 ```
 
 ## Layout
@@ -53,8 +54,10 @@ pytest
 - `support_agent/tool_registry.py` — JSON Schema tool definitions sent to the model, and `execute_tool` dispatcher
 - `support_agent/prompts.py` — system prompt with the store policies (store name: Kumo Market)
 - `support_agent/config.py` — `Settings` from env (`ANTHROPIC_MODEL`, optional `ANTHROPIC_EFFORT`, `AGENT_MAX_ITERATIONS`)
-- `support_agent/agent.py` — `SupportAgent.reply()`, the hand-written loop; returns `AgentReply` (text, stop_reason, iterations, tool_calls, usage)
-- `tests/` — unit tests
+- `support_agent/agent.py` — `SupportAgent.reply()`, the hand-written loop; returns `AgentReply` (text, stop_reason, iterations, latency_ms, model_calls, tool_calls, usage, error). `build_agent(conn, settings)` creates the live one
+- `support_agent/conversation_log.py` — `ConversationLog`: one JSON file per conversation (`record_turn`, `save(transcript)`); accepts free-form `metadata`
+- `support_agent/cli.py` + `__main__.py` — terminal chat; `run_chat` takes injectable `read`/`write` so tests can script it
+- `tests/` — unit tests; `tests/fakes.py` has the scripted `FakeClient` and response builders
 - `data/` — SQLite database (generated, git-ignored)
 - `logs/` — conversation logs (generated, git-ignored)
 
@@ -63,6 +66,10 @@ pytest
 - Tools take the SQLite connection as first argument and return a dict: `{"ok": True, ...}` or `{"ok": False, "error_code", "message"}`. Error codes are stable identifiers the evals will rely on; do not rename them casually.
 - Date-dependent tools accept a keyword-only `now` so tests never depend on the real clock.
 - Tool unit tests use the small hand-written store in `tests/conftest.py`, not the seed data.
-- Agent tests never call the real API: `tests/test_agent.py` scripts a `FakeClient`. Live checks go through `python -m support_agent.agent "message"`.
+- Tests never call the real API: they script a `FakeClient` (`tests/fakes.py`). For a live check without typing, pipe lines into the chat: `printf '%s
+' "message" "/exit" | python -m support_agent`.
 - The conversation history is append-only and model turns are stored unchanged (`response.content`, thinking blocks included). Do not edit or strip earlier turns.
 - A test fails if any file in `support_agent/` contains a model name; the model only comes from `.env`.
+- `SupportAgent.reply()` does not raise on API failures: it returns `stop_reason="api_error"` with `reply.error` set, so the turn is still logged.
+- The log format is a contract for the evals: bump `SCHEMA_VERSION` in `conversation_log.py` when a field is renamed or removed. Adding fields is fine.
+- On this project the API client must be created after `load_settings()` (which loads `.env`); see `build_agent`.
