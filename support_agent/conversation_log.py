@@ -24,8 +24,8 @@ from pathlib import Path
 from typing import Callable
 
 from support_agent.agent import USAGE_FIELDS, AgentReply
+from support_agent.channels import TEXT_CHANNEL, Channel
 from support_agent.config import PROJECT_ROOT, Settings
-from support_agent.prompts import SYSTEM_PROMPT
 
 SCHEMA_VERSION = 1
 DEFAULT_LOG_DIR = PROJECT_ROOT / "logs"
@@ -49,8 +49,11 @@ class ConversationLog:
         log_dir: str | Path = DEFAULT_LOG_DIR,
         metadata: dict | None = None,
         now: Callable[[], datetime] = _utc_now,
+        channel: Channel = TEXT_CHANNEL,
     ):
         self._now = now
+        # Must be the channel the agent was created with.
+        self.channel = channel
         self.started_at = now()
         # Sortable by time, with a random suffix so two conversations never collide.
         self.conversation_id = f"{self.started_at:%Y%m%dT%H%M%SZ}_{uuid.uuid4().hex[:8]}"
@@ -85,11 +88,14 @@ class ConversationLog:
             "conversation_id": self.conversation_id,
             "started_at": self.started_at.isoformat(),
             "updated_at": self._now().isoformat(),
+            "channel": self.channel.name,
             "model": self.settings.model,
             "effort": self.settings.effort,
             "max_iterations": self.settings.max_iterations,
             # Tells apart conversations produced by different versions of the prompt.
-            "system_prompt_sha256": hashlib.sha256(SYSTEM_PROMPT.encode("utf-8")).hexdigest(),
+            "system_prompt_sha256": hashlib.sha256(
+                self.channel.system_prompt.encode("utf-8")
+            ).hexdigest(),
             "metadata": self.metadata,
             "totals": self._totals(),
             "turns": self.turns,

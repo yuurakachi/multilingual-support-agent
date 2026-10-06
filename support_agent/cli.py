@@ -1,4 +1,4 @@
-"""Interactive chat in the terminal.
+"""Interactive chat in the terminal: the interface of the text channel.
 
 Usage:
     python -m support_agent              start chatting
@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Callable
 
 from support_agent.agent import AgentReply, SupportAgent, build_agent
+from support_agent.channels import TEXT_CHANNEL
 from support_agent.config import ConfigError, load_settings
 from support_agent.conversation_log import DEFAULT_LOG_DIR, ConversationLog
 from support_agent.db import DEFAULT_DB_PATH, connect
@@ -141,7 +142,10 @@ def main(argv: list[str] | None = None) -> int:
     conn = connect()
 
     def new_conversation() -> tuple[SupportAgent, ConversationLog]:
-        return build_agent(conn, settings), ConversationLog(settings, args.log_dir)
+        return (
+            build_agent(conn, settings, TEXT_CHANNEL),
+            ConversationLog(settings, args.log_dir, channel=TEXT_CHANNEL),
+        )
 
     try:
         print(f"Model: {settings.model}")
