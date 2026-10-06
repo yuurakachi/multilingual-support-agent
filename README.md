@@ -177,7 +177,7 @@ Orders with a known state, useful for trying things out (all created by the seed
 pytest
 ```
 
-144 tests, no API key needed: the agent, the chat and the scenario runner are tested against a scripted fake client, and the tools against a small hand-written store.
+151 tests, no API key needed: the agent, the chat and the scenario runner are tested against a scripted fake client, and the tools against a small hand-written store.
 
 ## Conversation logs
 
@@ -187,6 +187,7 @@ Every conversation is saved to `logs/<timestamp>_<id>.json` and rewritten after 
 {
   "schema_version": 1,
   "conversation_id": "20261006T191317Z_10dd59f6",
+  "channel": "text",                    // how the customer reached the agent
   "model": "...", "effort": "medium", "max_iterations": 8,
   "system_prompt_sha256": "...",        // which prompt version produced this conversation
   "metadata": {},                       // free-form labels, e.g. a scenario name and its check results
@@ -287,6 +288,8 @@ They do not judge language, tone or whether an explanation was accurate. A model
 
 **The history is append-only and model turns are stored unchanged**, thinking blocks included, as the API requires for current models. There is no trimming or summarising, so a very long conversation costs more on every turn.
 
+**The agent does not know how the customer reaches it.** `SupportAgent.reply()` takes text and returns text plus a record of what happened. The few things that depend on the channel (one sentence of the prompt, its style section, the fallback message) are bundled in a `Channel` object handed to the agent, so another interface can reuse the loop, the tools and the policies without copying them. The cost is one more concept to follow for a project that, so far, has a single channel.
+
 **Stopping is always safe.** The loop has an iteration limit. When it stops without an answer, for any reason, the customer gets a fixed message in all three languages, since the model is not available to translate it. Tools from a truncated or refused turn are never run, because their arguments may be incomplete. API failures become a reply with `stop_reason: "api_error"` rather than an exception, so the turn is still logged along with any tool that had already run.
 
 **Logs are rewritten in full after every turn.** One readable JSON file per conversation, safe against a crash mid-conversation, with a schema version and a hash of the system prompt. Rewriting the whole file is wasteful for long conversations, which is acceptable at this scale; an append-only format such as JSON Lines would suit high volume better.
@@ -314,7 +317,8 @@ They do not judge language, tone or whether an explanation was accurate. A model
 ```
 support_agent/
   agent.py             the hand-written loop (SupportAgent.reply)
-  prompts.py           system prompt with the store policies
+  prompts.py           system prompt: shared store policies + per-channel setting and style
+  channels.py          what depends on the channel (prompt, fallback message); text for now
   tool_registry.py     tool definitions sent to the model + dispatcher
   tools.py             the five tools and their policy checks
   db.py, seed.py       SQLite schema and simulated data
