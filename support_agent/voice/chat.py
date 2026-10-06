@@ -128,6 +128,8 @@ def start_voice_chat(new_conversation: NewConversation, show_trace: bool = True)
     from support_agent.voice.stt_groq import GroqSpeechToText
     from support_agent.voice.tts_edge import DEFAULT_VOICES, EdgeTextToSpeech
 
+    # The first time after a restart, Windows can take several seconds to wake the microphone.
+    print("Preparing the microphone...")
     try:
         key = PushToTalkKey()
         speaker = Speaker()

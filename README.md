@@ -128,6 +128,9 @@ Everything is read from `.env`, which is git-ignored.
 | `ANTHROPIC_MODEL` | Claude model the agent uses. The code never names a model; a test enforces it. |
 | `ANTHROPIC_EFFORT` | Optional thinking effort (`low` to `max`). Empty uses the API default. |
 | `AGENT_MAX_ITERATIONS` | Optional cap on model calls per customer message (default 8). |
+| `GROQ_API_KEY` | Voice only. Free Groq key for speech-to-text (no card needed). |
+| `STT_MODEL` | Voice only. Speech-to-text model hosted by Groq. |
+| `TTS_VOICE_ES`, `TTS_VOICE_JA`, `TTS_VOICE_EN` | Voice only, optional. Replace the default text-to-speech voice of a language. |
 
 ### Chat
 
@@ -171,13 +174,33 @@ Orders with a known state, useful for trying things out (all created by the seed
 | `ORD-1004` | `ken.sato@example.jp` | Delivered 45 days ago (refund window closed) |
 | `ORD-1005` | `carlos.hernandez@example.com` | Cancelled |
 
+### Voice chat
+
+```bash
+python -m support_agent --voice
+```
+
+Hold SPACE while you talk and release it to send. The agent's answer is printed and read aloud. `N` starts a new conversation, `Q` or `Esc` leaves. It needs a microphone, a free Groq key in `.env`, and Windows (the push-to-talk key reads the Windows key state).
+
+```text
+Listening... release SPACE to send.
+You> Hola, quiero saber dónde está mi pedido. El número es ORD1002 y mi correo es maria.garcia.example.com.
+  [tool] get_order_status {"order_id": "ORD-1002", "email": "maria.garcia@example.com"} -> ok
+  [2 model call(s), 4.2 s, 6407 tokens in / 281 out, stop: end_turn]
+Agent> Su pedido ya salió. Se envió el dos de octubre y todavía no se ha entregado. Va a la Calle de Alcalá cuarenta y cinco, en Madrid. Tiene un número de seguimiento, ¿quiere que se lo lea?
+```
+
+The `You>` line is what the speech recogniser understood, mistakes included: the order number lost its hyphen and the email its `@`. The agent works out the written form before calling the tool, and writes its answer for the ear: dates and amounts in words, no lists, long codes offered instead of recited.
+
+It is the same agent as the text chat. Speech-to-text (Whisper on Groq's free tier) turns the recording into the text passed to `SupportAgent.reply()`, and text-to-speech (`edge-tts`) reads the reply with a voice native to the language the customer spoke. Both are free and sit behind small interfaces in [`support_agent/voice/speech.py`](support_agent/voice/speech.py).
+
 ### Unit tests
 
 ```bash
 pytest
 ```
 
-151 tests, no API key needed: the agent, the chat and the scenario runner are tested against a scripted fake client, and the tools against a small hand-written store.
+197 tests, no API key, microphone or network needed: the agent, the chat and the scenario runner are tested against a scripted fake client, and the tools against a small hand-written store.
 
 ## Conversation logs
 
@@ -288,7 +311,7 @@ They do not judge language, tone or whether an explanation was accurate. A model
 
 **The history is append-only and model turns are stored unchanged**, thinking blocks included, as the API requires for current models. There is no trimming or summarising, so a very long conversation costs more on every turn.
 
-**The agent does not know how the customer reaches it.** `SupportAgent.reply()` takes text and returns text plus a record of what happened. The few things that depend on the channel (one sentence of the prompt, its style section, the fallback message) are bundled in a `Channel` object handed to the agent, so another interface can reuse the loop, the tools and the policies without copying them. The cost is one more concept to follow for a project that, so far, has a single channel.
+**The agent does not know how the customer reaches it.** `SupportAgent.reply()` takes text and returns text plus a record of what happened. The few things that depend on the channel (three parts of the prompt: the setting, how to handle order numbers and other exact values, and the style; plus the fallback message) are bundled in a `Channel` object handed to the agent. The text chat and the voice chat reuse the same loop, tools and policies without copying them. The cost is one more concept to follow, and a prompt assembled from parts instead of read top to bottom in one place.
 
 **Stopping is always safe.** The loop has an iteration limit. When it stops without an answer, for any reason, the customer gets a fixed message in all three languages, since the model is not available to translate it. Tools from a truncated or refused turn are never run, because their arguments may be incomplete. API failures become a reply with `stop_reason: "api_error"` rather than an exception, so the turn is still logged along with any tool that had already run.
 
@@ -318,13 +341,14 @@ They do not judge language, tone or whether an explanation was accurate. A model
 support_agent/
   agent.py             the hand-written loop (SupportAgent.reply)
   prompts.py           system prompt: shared store policies + per-channel setting and style
-  channels.py          what depends on the channel (prompt, fallback message); text for now
+  channels.py          what depends on the channel (prompt, fallback message): text and voice
   tool_registry.py     tool definitions sent to the model + dispatcher
   tools.py             the five tools and their policy checks
   db.py, seed.py       SQLite schema and simulated data
   config.py            settings read from .env
   conversation_log.py  structured JSON log
-  cli.py               terminal chat
+  cli.py               entry point and terminal chat
+  voice/               push-to-talk voice chat: microphone, speech-to-text, text-to-speech
   scenarios.py         scenario loading, checks and execution
   run_scenarios.py     scenario runner
 scenarios/             the ten scripted conversations
