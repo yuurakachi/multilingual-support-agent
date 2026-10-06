@@ -12,9 +12,9 @@ or speaking the answer, is the job of the interface built around it.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from support_agent.prompts import SYSTEM_PROMPT
+from support_agent.prompts import SYSTEM_PROMPT, VOICE_SYSTEM_PROMPT
 
 # Shown when the loop has to stop without an answer from the model. It cannot be
 # written in the customer's language by the model, so it carries all three.
@@ -27,6 +27,24 @@ FALLBACK_MESSAGE = (
     "担当者との会話をご希望の旨をお伝えください。"
 )
 
+# On a call the speech recogniser tells us which language the customer spoke, and
+# three languages read by one voice would be unintelligible, so the voice channel
+# says the message in that language only.
+VOICE_FALLBACK_MESSAGES = {
+    "en": (
+        "Sorry, I could not complete your request. Please try again, or ask to speak with a "
+        "human agent."
+    ),
+    "es": (
+        "Lo siento, no pude completar tu solicitud. Inténtalo de nuevo o pide hablar con un "
+        "agente humano."
+    ),
+    "ja": (
+        "申し訳ございません。ご依頼を完了できませんでした。もう一度お試しいただくか、"
+        "担当者との会話をご希望の旨をお伝えください。"
+    ),
+}
+
 
 @dataclass(frozen=True)
 class Channel:
@@ -34,8 +52,21 @@ class Channel:
     name: str
     system_prompt: str
     fallback_message: str
+    # Per-language versions ("es", "ja", "en"), for channels that know the
+    # customer's language. Empty means fallback_message is always used.
+    fallback_by_language: dict[str, str] = field(default_factory=dict)
+
+    def fallback_for(self, language: str | None) -> str:
+        return self.fallback_by_language.get(language, self.fallback_message)
 
 
 TEXT_CHANNEL = Channel(
     name="text", system_prompt=SYSTEM_PROMPT, fallback_message=FALLBACK_MESSAGE
+)
+
+VOICE_CHANNEL = Channel(
+    name="voice",
+    system_prompt=VOICE_SYSTEM_PROMPT,
+    fallback_message=VOICE_FALLBACK_MESSAGES["en"],
+    fallback_by_language=VOICE_FALLBACK_MESSAGES,
 )

@@ -107,8 +107,13 @@ class SupportAgent:
         self.messages: list[dict] = []
         self._clock = clock
 
-    def reply(self, user_text: str) -> AgentReply:
-        """Answer one customer message, calling tools as many times as needed."""
+    def reply(self, user_text: str, language: str | None = None) -> AgentReply:
+        """Answer one customer message, calling tools as many times as needed.
+
+        `language` ("es", "ja" or "en") is optional and only chooses the fallback
+        message, for channels that know which language the customer is using.
+        The model works out the reply language from the conversation by itself.
+        """
         started = self._clock()
         self.messages.append({"role": "user", "content": user_text})
 
@@ -117,7 +122,7 @@ class SupportAgent:
         if not reply.completed:
             # Recorded as the assistant's turn so the history stays well-formed
             # and the customer can keep chatting.
-            reply.text = self.channel.fallback_message
+            reply.text = self.channel.fallback_for(language)
             self.messages.append({"role": "assistant", "content": reply.text})
 
         reply.latency_ms = self._elapsed_ms(started)
