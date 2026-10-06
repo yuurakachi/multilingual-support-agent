@@ -55,7 +55,42 @@ class Settings:
         return cls(model=model, effort=effort, max_iterations=max_iterations)
 
 
+@dataclass(frozen=True)
+class VoiceSettings:
+    """What the voice channel needs on top of Settings."""
+
+    groq_api_key: str
+    # Speech-to-text model. Like the Claude model, it is named only in .env.
+    stt_model: str
+    # Optional text-to-speech voice per language code, replacing the default one.
+    tts_voices: Mapping[str, str]
+
+    @classmethod
+    def from_env(cls, env: Mapping[str, str] = os.environ) -> VoiceSettings:
+        groq_api_key = env.get("GROQ_API_KEY", "").strip()
+        if not groq_api_key:
+            raise ConfigError(
+                "GROQ_API_KEY is not set. Create a free key at https://console.groq.com "
+                "and add it to .env."
+            )
+        stt_model = env.get("STT_MODEL", "").strip()
+        if not stt_model:
+            raise ConfigError("STT_MODEL is not set. Copy its line from .env.example to .env.")
+
+        tts_voices = {
+            language: voice
+            for language in ("es", "ja", "en")
+            if (voice := env.get(f"TTS_VOICE_{language.upper()}", "").strip())
+        }
+        return cls(groq_api_key=groq_api_key, stt_model=stt_model, tts_voices=tts_voices)
+
+
 def load_settings() -> Settings:
     """Load .env from the project root (if present) and read the settings."""
     load_dotenv(PROJECT_ROOT / ".env")
     return Settings.from_env()
+
+
+def load_voice_settings() -> VoiceSettings:
+    load_dotenv(PROJECT_ROOT / ".env")
+    return VoiceSettings.from_env()

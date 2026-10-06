@@ -1,3 +1,11 @@
 anthropic>=0.40
 python-dotenv>=1.0
 pytest>=8.0
+
+# Voice channel (python -m support_agent --voice). All free, no paid service.
+numpy>=2.0          # audio samples
+sounddevice>=0.5    # microphone and speaker
+soundfile>=0.13     # decodes the MP3 that edge-tts returns
+edge-tts>=7.0       # text-to-speech (unofficial Microsoft Edge voices)
+httpx2>=2.0         # HTTP client, used directly for Groq speech-to-text
+truststore>=0.10    # verify HTTPS with the operating system's certificates

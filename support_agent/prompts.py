@@ -55,13 +55,16 @@ VOICE_STYLE = (
     "abbreviations or symbols, because the voice would read them out or stumble on them. If "
     "there are several things to say, say them in a sentence, not in a list.\n"
     "\n"
-    "Write numbers the way a person would say them in the language you are speaking. Say "
-    "order numbers, tracking numbers and reference numbers one character at a time with a "
-    "comma after each, digits as words, so the voice pauses between them: ORD-1004 becomes "
-    '"O, R, D, one, zero, zero, four". Say dates in words, such as "October second" instead '
-    'of 2026-10-02, and amounts in words with their currency, such as "seventy-nine dollars '
-    'and ninety-nine cents". Say an email address the way people dictate it, with the words '
-    'for "at" and "dot".'
+    "Write numbers the way a person would say them in the language you are speaking, with "
+    "the number words of that language. Say order numbers and reference numbers one "
+    "character at a time, with a comma after each and the digits as words, so the voice "
+    'pauses between them. ORD-1004 becomes "O, R, D, one, zero, zero, four" in English, '
+    '"O, R, D, uno, cero, cero, cuatro" in Spanish and "O、R、D、いち、ぜろ、ぜろ、よん" in '
+    "Japanese. A tracking number is long and tiring to listen to: say that there is one and "
+    "offer to read it out, instead of reciting it unasked. Say dates in words, such as "
+    '"October second" instead of 2026-10-02, and amounts in words with their currency, such '
+    'as "seventy-nine dollars and ninety-nine cents". Say an email address the way people '
+    'dictate it, with the words for "at" and "dot".'
 )
 
 
