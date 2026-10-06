@@ -18,6 +18,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 CURRENCY = "USD"
+MAX_ADDRESS_LENGTH = 300
 
 
 def _error(code: str, message: str, **details) -> dict:
@@ -132,4 +133,49 @@ def get_order_status(conn: sqlite3.Connection, order_id: str, email: str) -> dic
         "total": _money(_order_total_cents(conn, order["id"])),
         "currency": CURRENCY,
         "refund_status": refund["status"] if refund else None,
+    }
+
+
+@_tool
+def update_shipping_address(
+    conn: sqlite3.Connection, order_id: str, email: str, new_address: str
+) -> dict:
+    """Change where an order is sent. Only allowed before the order ships."""
+    order, error = _find_verified_order(conn, order_id, email)
+    if error:
+        return error
+
+    if not _is_text(new_address):
+        return _error("invalid_input", "A new shipping address is required.")
+    new_address = new_address.strip()
+    if len(new_address) > MAX_ADDRESS_LENGTH:
+        return _error(
+            "invalid_input",
+            f"The shipping address is too long (maximum {MAX_ADDRESS_LENGTH} characters).",
+        )
+
+    status = order["status"]
+    if status == "cancelled":
+        return _error(
+            "order_cancelled",
+            "This order was cancelled, so its shipping address cannot be changed.",
+            status=status,
+        )
+    if status != "processing":
+        return _error(
+            "order_already_shipped",
+            f"This order is already {status}. The shipping address can only be changed "
+            "before the order ships.",
+            status=status,
+        )
+
+    with conn:
+        conn.execute(
+            "UPDATE orders SET shipping_address = ? WHERE id = ?", (new_address, order["id"])
+        )
+    return {
+        "ok": True,
+        "order_id": order["id"],
+        "previous_address": order["shipping_address"],
+        "shipping_address": new_address,
     }
