@@ -24,6 +24,8 @@ Work phase by phase. At the end of each phase: run the tests, commit, push to Gi
 
 ## Phases
 
+All five phases are complete. The next planned work is an eval system built on the conversation logs.
+
 0. Repo setup (done)
 1. (done) SQLite data (~20 customers, ~50 orders; statuses `processing`, `shipped`, `delivered`, `cancelled`) and tools, each with tests:
    - `get_order_status(order_id, email)`
@@ -34,7 +36,7 @@ Work phase by phase. At the end of each phase: run the tests, commit, push to Gi
 2. (done) Agent loop and system prompt with store policies: verify identity (order number + email) before giving or changing information; always answer in the customer's language; never invent information or promise anything outside policy; escalate to a human if the customer asks, is very upset, or the tools do not cover the case.
 3. (done) Interactive CLI and JSON conversation logging.
 4. (done) Ten scenario conversations (mixed languages: happy paths, out-of-policy requests, a customer trying to see someone else's order, a customer asking for a human) and a script that runs them and reports what happened.
-5. Final README: what it does, Mermaid architecture diagram, how to run, design decisions and trade-offs, known limitations.
+5. (done) Final README: what it does, Mermaid architecture diagram, how to run, design decisions and trade-offs, known limitations.
 
 ## Commands
 
@@ -70,8 +72,7 @@ python -m support_agent.run_scenarios   # ten scripted conversations against the
 - Tools take the SQLite connection as first argument and return a dict: `{"ok": True, ...}` or `{"ok": False, "error_code", "message"}`. Error codes are stable identifiers the evals will rely on; do not rename them casually.
 - Date-dependent tools accept a keyword-only `now` so tests never depend on the real clock.
 - Tool unit tests use the small hand-written store in `tests/conftest.py`, not the seed data.
-- Tests never call the real API: they script a `FakeClient` (`tests/fakes.py`). For a live check without typing, pipe lines into the chat: `printf '%s
-' "message" "/exit" | python -m support_agent`.
+- Tests never call the real API: they script a `FakeClient` (`tests/fakes.py`). For a live check without typing, pipe lines into the chat: `printf '%s\n' "message" "/exit" | python -m support_agent`.
 - The conversation history is append-only and model turns are stored unchanged (`response.content`, thinking blocks included). Do not edit or strip earlier turns.
 - A test fails if any file in `support_agent/` contains a model name; the model only comes from `.env`.
 - `SupportAgent.reply()` does not raise on API failures: it returns `stop_reason="api_error"` with `reply.error` set, so the turn is still logged.
