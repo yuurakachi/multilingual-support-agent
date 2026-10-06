@@ -17,6 +17,7 @@ voice -> STT (speech-to-text) -> existing agent -> TTS (text-to-speech) -> audio
 - The API key lives only in `.env`, which is git-ignored. Never commit it, print it or copy it elsewhere.
 - Simulated data in SQLite. Interfaces: a CLI text chat, and a push-to-talk voice mode in the terminal that must work on Windows.
 - All API keys (Anthropic and any STT/TTS provider) live only in `.env`. When a new variable is added, update `.env.example` in the same commit.
+- **The voice channel must cost nothing** (owner's decision, 2026-10-06): only free STT/TTS providers that need no payment method. Never add a paid provider or a paid tier. If one of the three languages does not work well in voice with free providers, it may be skipped for now: tell the owner instead of paying for a fix. The Claude API calls of the agent itself are the only paid part and already existed.
 - Tools return clear error results (order not found, email mismatch, outside policy) instead of raising.
 - Every conversation is saved as structured JSON (messages, tool calls, arguments, results, token usage, latency). An eval system will be built on these logs later, so keep them stable and machine-readable.
 
@@ -44,7 +45,7 @@ Also:
 
 ## Phases
 
-Phases 0-5 (text agent) and phase 6 are complete. **Phase 7 is waiting for the owner to choose providers; phase 8 comes after that.** The eval system built on the conversation logs is still planned for after the voice channel.
+Phases 0-5 (text agent) and phases 6-7 are complete. **Next: phase 8.** The eval system built on the conversation logs is still planned for after the voice channel.
 
 ### Text agent
 
@@ -63,12 +64,13 @@ Phases 0-5 (text agent) and phase 6 are complete. **Phase 7 is waiting for the o
 ### Voice channel (branch `voice`)
 
 6. (done) Separate the brain from the interface: the agent core no longer depends on the channel. The text CLI works exactly as before.
-7. **(research presented 2026-10-06, waiting for the owner to choose)** Provider research, no code: propose 2-3 STT and 2-3 TTS options, at least one local or free. Comparison table: quality in Spanish/Japanese/English, latency, approximate cost, whether it runs on Windows, ease of integration. Give a recommendation and wait for the owner to choose.
+7. (done) Provider research, no code: propose 2-3 STT and 2-3 TTS options, at least one local or free. Comparison table: quality in Spanish/Japanese/English, latency, approximate cost, whether it runs on Windows, ease of integration. Give a recommendation and wait for the owner to choose.
    - STT shortlist: Groq `whisper-large-v3-turbo` (free tier, fastest, OpenAI-compatible API, returns the detected language), OpenAI `gpt-4o-mini-transcribe` / `gpt-transcribe` (paid, no detected language), local `faster-whisper` (free, offline; on this CPU `small` is usable, `large-v3-turbo` is slower than real time).
    - TTS shortlist: OpenAI `gpt-4o-mini-tts` (paid, one voice for all three languages, WAV/PCM output), `edge-tts` (free, unofficial Microsoft endpoint, native neural voice per language, MP3 only), Windows SAPI voices (local, free, robotic; es-MX, en-US and ja-JP are already installed on the owner's machine).
-   - Recommendation given: Groq for STT + OpenAI for TTS, both behind a small interface so a provider can be swapped from `.env`. Zero-cost alternative: Groq + `edge-tts`.
+   - **Chosen: Groq free tier for STT + `edge-tts` for TTS**, because the owner wants everything free (OpenAI TTS was ruled out for being paid). Both go behind a small interface so a provider can be swapped from `.env`. Free fallbacks if one of them stops working: local `faster-whisper` for STT, the Windows SAPI voices for TTS.
+   - Known risks of the choice: `edge-tts` is unofficial and may break; it needs the language to pick a voice (taken from the STT result); Whisper can misdetect the language of very short clips; Norton TLS interception may break new HTTP libraries on the owner's machine (fix: OS trust store or the Norton pem, never disabling verification).
    - Owner's machine: Ryzen 7 4700U (8 cores), 15 GB RAM, no NVIDIA GPU, about 23 GB free disk. Local models run on CPU only.
-   - **The owner's choice is not recorded yet. Do not start phase 8 without it.**
+   - Phase 8 needs a `GROQ_API_KEY` in `.env`. The owner creates the Groq account and key (free, no card); never create accounts or type keys for them.
 8. Basic voice loop: push-to-talk in the terminal (press a key, speak, release, the agent answers with audio), working on Windows. Add a voice mode to the system prompt: short, conversational answers, no Markdown or lists, numbers and IDs written so they read well aloud.
 9. Measure latency: per turn, log the time of each stage (STT, LLM including tool calls, TTS, total) in the JSON logs, plus a script that prints average and worst case per stage.
 10. Voice-specific problems: the agent repeats and confirms key data (order numbers, emails) before using tools, because dictation garbles them; empty audio, noise or unintelligible transcripts make it ask the customer to repeat; test audio files generated with the TTS from the existing scenarios in the three languages, and a script that runs them through the whole pipeline without a microphone.
