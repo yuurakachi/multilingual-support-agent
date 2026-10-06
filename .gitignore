@@ -1,0 +1,37 @@
+# Secrets -- never commit real credentials
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+
+# Generated data: the SQLite database is rebuilt from the seed script
+data/*.db
+data/*.sqlite3
+
+# Generated conversation logs
+logs/*.json
+logs/*.jsonl
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Claude Code local settings
+.claude/settings.local.json
