@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import functools
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 CURRENCY = "USD"
 MAX_ADDRESS_LENGTH = 300
+REFUND_WINDOW_DAYS = 30
 
 
 def _error(code: str, message: str, **details) -> dict:
@@ -35,6 +36,10 @@ def _money(cents: int) -> str:
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _refund_id(row_id: int) -> str:
+    return f"RF-{row_id:04d}"
 
 
 def _tool(func):
@@ -178,4 +183,70 @@ def update_shipping_address(
         "order_id": order["id"],
         "previous_address": order["shipping_address"],
         "shipping_address": new_address,
+    }
+
+
+@_tool
+def request_refund(
+    conn: sqlite3.Connection,
+    order_id: str,
+    email: str,
+    reason: str,
+    *,
+    now: datetime | None = None,
+) -> dict:
+    """Request a refund. Only allowed for delivered orders, up to 30 days after delivery."""
+    order, error = _find_verified_order(conn, order_id, email)
+    if error:
+        return error
+
+    if not _is_text(reason):
+        return _error("invalid_input", "A reason for the refund is required.")
+
+    status = order["status"]
+    if status != "delivered":
+        return _error(
+            "order_not_delivered",
+            f"Refunds can only be requested after delivery. This order is {status}.",
+            status=status,
+        )
+
+    existing = conn.execute(
+        "SELECT id, status FROM refunds WHERE order_id = ?", (order["id"],)
+    ).fetchone()
+    if existing:
+        return _error(
+            "refund_already_requested",
+            "A refund has already been requested for this order.",
+            refund_id=_refund_id(existing["id"]),
+            refund_status=existing["status"],
+        )
+
+    now = now or _utc_now()
+    delivered_on = date.fromisoformat(order["delivered_on"])
+    days_since_delivery = (now.date() - delivered_on).days
+    if days_since_delivery > REFUND_WINDOW_DAYS:
+        return _error(
+            "refund_window_expired",
+            f"Refunds must be requested within {REFUND_WINDOW_DAYS} days of delivery. "
+            f"This order was delivered {days_since_delivery} days ago.",
+            delivered_on=order["delivered_on"],
+            days_since_delivery=days_since_delivery,
+            refund_deadline=(delivered_on + timedelta(days=REFUND_WINDOW_DAYS)).isoformat(),
+        )
+
+    amount_cents = _order_total_cents(conn, order["id"])
+    with conn:
+        cursor = conn.execute(
+            "INSERT INTO refunds (order_id, reason, amount_cents, created_at) VALUES (?, ?, ?, ?)",
+            (order["id"], reason.strip(), amount_cents, now.isoformat()),
+        )
+    return {
+        "ok": True,
+        "refund_id": _refund_id(cursor.lastrowid),
+        "order_id": order["id"],
+        "status": "requested",
+        "amount": _money(amount_cents),
+        "currency": CURRENCY,
+        "days_since_delivery": days_since_delivery,
     }
