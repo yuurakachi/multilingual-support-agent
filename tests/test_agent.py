@@ -301,3 +301,102 @@ def test_build_agent_loads_env_before_creating_the_client(conn, monkeypatch):
 
     assert key_seen_by_client == ["test-key-from-dotenv"]
     assert built.settings is SETTINGS
+
+
+class FakeClock:
+    """Advances half a second every time it is read."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        self.now += 0.5
+        return self.now
+
+
+def test_records_model_calls_tool_calls_and_latency(conn):
+    client = FakeClient(
+        response(
+            tool_use("toolu_1", "get_order_status", order_id="ORD-1", email=ALICE),
+            stop_reason="tool_use",
+            input_tokens=100,
+            output_tokens=20,
+        ),
+        response(text("ok"), input_tokens=150, output_tokens=30),
+    )
+    agent = SupportAgent(client, conn, SETTINGS, clock=FakeClock())
+
+    reply = agent.reply("status?")
+
+    assert [(call.iteration, call.stop_reason) for call in reply.model_calls] == [
+        (1, "tool_use"),
+        (2, "end_turn"),
+    ]
+    assert [call.latency_ms for call in reply.model_calls] == [500, 500]
+    assert reply.model_calls[0].usage["input_tokens"] == 100
+    assert reply.model_calls[1].usage["output_tokens"] == 30
+
+    (tool_call,) = reply.tool_calls
+    assert (tool_call.iteration, tool_call.id) == (1, "toolu_1")
+    assert tool_call.latency_ms == 500
+
+    # The whole turn takes at least as long as its parts.
+    assert reply.latency_ms >= 1500
+
+
+def api_connection_error():
+    import anthropic
+    import httpx2
+
+    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    return anthropic.APIConnectionError(message="Connection error.", request=request)
+
+
+class FailingClient(FakeClient):
+    """Returns its scripted responses, then fails like a dropped connection."""
+
+    def _create(self, **request):
+        if not self._responses:
+            self.requests.append(request)
+            raise api_connection_error()
+        return super()._create(**request)
+
+
+def test_api_failure_becomes_a_reply_instead_of_an_exception(conn):
+    agent = SupportAgent(FailingClient(), conn, SETTINGS)
+
+    reply = agent.reply("hello?")
+
+    assert reply.stop_reason == "api_error"
+    assert reply.completed is False
+    assert reply.text == FALLBACK_MESSAGE
+    assert reply.error == {
+        "type": "APIConnectionError",
+        "message": "Connection error.",
+        "status_code": None,
+    }
+    assert reply.model_calls == []
+    assert [message["role"] for message in agent.messages] == ["user", "assistant"]
+
+
+def test_api_failure_keeps_the_tools_that_already_ran(conn):
+    client = FailingClient(
+        response(
+            tool_use("toolu_1", "escalate_to_human", reason="Customer asked for a person."),
+            stop_reason="tool_use",
+        )
+    )
+    agent = SupportAgent(client, conn, SETTINGS)
+
+    reply = agent.reply("I want a human")
+
+    assert reply.stop_reason == "api_error"
+    assert [call.name for call in reply.tool_calls] == ["escalate_to_human"]
+    assert conn.execute("SELECT COUNT(*) FROM escalations").fetchone()[0] == 1
+    # History stays well-formed: question, tool request, tool result, fallback.
+    assert [message["role"] for message in agent.messages] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
