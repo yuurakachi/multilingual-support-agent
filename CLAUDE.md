@@ -31,7 +31,7 @@ Work phase by phase. At the end of each phase: run the tests, commit, push to Gi
    - `request_refund(order_id, email, reason)` — only within 30 days after delivery
    - `create_support_ticket(email, summary)`
    - `escalate_to_human(reason)`
-2. Agent loop and system prompt with store policies: verify identity (order number + email) before giving or changing information; always answer in the customer's language; never invent information or promise anything outside policy; escalate to a human if the customer asks, is very upset, or the tools do not cover the case.
+2. (done) Agent loop and system prompt with store policies: verify identity (order number + email) before giving or changing information; always answer in the customer's language; never invent information or promise anything outside policy; escalate to a human if the customer asks, is very upset, or the tools do not cover the case.
 3. Interactive CLI and JSON conversation logging.
 4. Ten scenario conversations (mixed languages: happy paths, out-of-policy requests, a customer trying to see someone else's order, a customer asking for a human) and a script that runs them and reports what happened.
 5. Final README: what it does, Mermaid architecture diagram, how to run, design decisions and trade-offs, known limitations.
@@ -50,6 +50,10 @@ pytest
 - `support_agent/db.py` — SQLite connection and schema
 - `support_agent/seed.py` — deterministic simulated data; ORD-1001..ORD-1008 are hand-picked anchor orders with a known state
 - `support_agent/tools.py` — the five support tools
+- `support_agent/tool_registry.py` — JSON Schema tool definitions sent to the model, and `execute_tool` dispatcher
+- `support_agent/prompts.py` — system prompt with the store policies (store name: Kumo Market)
+- `support_agent/config.py` — `Settings` from env (`ANTHROPIC_MODEL`, optional `ANTHROPIC_EFFORT`, `AGENT_MAX_ITERATIONS`)
+- `support_agent/agent.py` — `SupportAgent.reply()`, the hand-written loop; returns `AgentReply` (text, stop_reason, iterations, tool_calls, usage)
 - `tests/` — unit tests
 - `data/` — SQLite database (generated, git-ignored)
 - `logs/` — conversation logs (generated, git-ignored)
@@ -59,3 +63,6 @@ pytest
 - Tools take the SQLite connection as first argument and return a dict: `{"ok": True, ...}` or `{"ok": False, "error_code", "message"}`. Error codes are stable identifiers the evals will rely on; do not rename them casually.
 - Date-dependent tools accept a keyword-only `now` so tests never depend on the real clock.
 - Tool unit tests use the small hand-written store in `tests/conftest.py`, not the seed data.
+- Agent tests never call the real API: `tests/test_agent.py` scripts a `FakeClient`. Live checks go through `python -m support_agent.agent "message"`.
+- The conversation history is append-only and model turns are stored unchanged (`response.content`, thinking blocks included). Do not edit or strip earlier turns.
+- A test fails if any file in `support_agent/` contains a model name; the model only comes from `.env`.

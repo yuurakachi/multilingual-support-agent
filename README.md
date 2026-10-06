@@ -4,7 +4,7 @@ A customer support AI agent for a fictional online store. It answers in Spanish,
 
 The agent loop is written by hand on top of the Claude API (no agent framework), so every step — model decides, tool runs, result goes back — is visible in the code.
 
-> **Status:** work in progress. Phase 1 (store data and tools) is done; the agent loop comes next.
+> **Status:** work in progress. Phase 2 (agent loop) is done; the interactive CLI and conversation logs come next.
 
 ## Features
 
@@ -12,7 +12,7 @@ _To be completed as the phases land._
 
 - [x] Simulated store data in SQLite (customers, products, orders)
 - [x] Support tools with policy checks and clear error results
-- [ ] Hand-written tool-use loop with an iteration limit
+- [x] Hand-written tool-use loop with an iteration limit
 - [ ] Interactive CLI chat
 - [ ] Structured JSON conversation logs (messages, tool calls, tokens, latency)
 - [ ] Scenario test runner
@@ -28,6 +28,15 @@ _To be completed as the phases land._
 | `escalate_to_human(reason)` | Queues the conversation for a human agent | — |
 
 Tools never raise for expected problems. They return `{"ok": false, "error_code": "...", "message": "..."}` (for example `order_not_found`, `email_mismatch`, `refund_window_expired`) so the model can explain the problem and the logs record it.
+
+## How the loop works
+
+`SupportAgent.reply()` in `support_agent/agent.py` handles one customer message:
+
+1. Send the full conversation, the system prompt and the tool definitions to the model.
+2. If the model stops with `tool_use`, run every requested tool, append the model's turn and one message with all the results, and go back to step 1.
+3. If it stops with `end_turn`, its text is the reply.
+4. Anything else (`refusal`, `max_tokens`, or reaching the iteration limit) ends the turn with a fixed fallback message, and no tool from an incomplete turn is ever run.
 
 ## Architecture
 
@@ -46,10 +55,16 @@ cp .env.example .env            # then add your ANTHROPIC_API_KEY
 python -m support_agent.seed    # build the simulated store database
 ```
 
-Run the tests:
+Run the tests (they use a scripted fake client, so no API key is needed):
 
 ```bash
 pytest
+```
+
+Send one message to the live agent:
+
+```bash
+python -m support_agent.agent "Where is my order ORD-1001? My email is yuki.tanaka@example.jp"
 ```
 
 ## Configuration
@@ -58,6 +73,8 @@ pytest
 | ------------------- | -------------------------------------------- |
 | `ANTHROPIC_API_KEY` | Your Anthropic API key. Never commit it.     |
 | `ANTHROPIC_MODEL`   | Claude model the agent uses.                 |
+| `ANTHROPIC_EFFORT`  | Optional thinking effort (`low` … `max`). Empty = API default. |
+| `AGENT_MAX_ITERATIONS` | Optional cap on model calls per customer message (default 8). |
 
 ## Project structure
 
