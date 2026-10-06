@@ -19,7 +19,9 @@ import sqlite3
 import sys
 from dataclasses import dataclass, field
 
-from support_agent.config import Settings
+import anthropic
+
+from support_agent.config import Settings, load_settings
 from support_agent.prompts import SYSTEM_PROMPT
 from support_agent.tool_registry import TOOL_DEFINITIONS, execute_tool
 
@@ -167,11 +169,16 @@ def _add_usage(total: dict[str, int], usage) -> None:
         total[name] += getattr(usage, name, None) or 0
 
 
+def build_agent(conn: sqlite3.Connection) -> SupportAgent:
+    """Create an agent that talks to the live API, configured from .env."""
+    # Settings first: loading .env is what puts ANTHROPIC_API_KEY in the
+    # environment, and the client reads it at the moment it is created.
+    settings = load_settings()
+    return SupportAgent(anthropic.Anthropic(), conn, settings)
+
+
 def main() -> None:
     """Send a single message to the live API: python -m support_agent.agent "message"."""
-    import anthropic
-
-    from support_agent.config import load_settings
     from support_agent.db import DEFAULT_DB_PATH, connect
     from support_agent.seed import build_database
 
@@ -183,8 +190,7 @@ def main() -> None:
 
     conn = connect()
     try:
-        agent = SupportAgent(anthropic.Anthropic(), conn, load_settings())
-        reply = agent.reply(sys.argv[1])
+        reply = build_agent(conn).reply(sys.argv[1])
     finally:
         conn.close()
 

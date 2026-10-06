@@ -275,3 +275,29 @@ def test_effort_is_sent_only_when_configured(conn):
     SupportAgent(client, conn, settings).reply("hi")
 
     assert client.requests[0]["output_config"] == {"effort": "low"}
+
+
+def test_build_agent_loads_env_before_creating_the_client(conn, monkeypatch):
+    """Regression: the client was once created before .env was loaded, so it had no key."""
+    from support_agent import agent as agent_module
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    key_seen_by_client = []
+
+    def fake_load_settings():
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-from-dotenv")
+        return SETTINGS
+
+    def fake_client():
+        import os
+
+        key_seen_by_client.append(os.environ.get("ANTHROPIC_API_KEY"))
+        return FakeClient()
+
+    monkeypatch.setattr(agent_module, "load_settings", fake_load_settings)
+    monkeypatch.setattr(agent_module.anthropic, "Anthropic", fake_client)
+
+    built = agent_module.build_agent(conn)
+
+    assert key_seen_by_client == ["test-key-from-dotenv"]
+    assert built.settings is SETTINGS
