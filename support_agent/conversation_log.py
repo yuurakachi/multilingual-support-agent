@@ -64,6 +64,8 @@ class ConversationLog:
         # Free-form labels, for example which test scenario produced this conversation.
         self.metadata = dict(metadata or {})
         self.turns: list[dict] = []
+        # Things that happened outside a turn, for example audio nobody could understand.
+        self.events: list[dict] = []
 
     def record_turn(
         self, user_message: str, reply: AgentReply, voice: dict | None = None
@@ -94,6 +96,18 @@ class ConversationLog:
             }
         )
 
+    def record_event(self, event_type: str, **details) -> None:
+        """Add something worth knowing that is not a customer message and its answer."""
+        self.events.append(
+            {
+                "type": event_type,
+                "at": self._now().isoformat(),
+                # How many turns had been completed when it happened.
+                "after_turn": len(self.turns),
+                **details,
+            }
+        )
+
     def to_dict(self, transcript: list | None = None) -> dict:
         return {
             "schema_version": SCHEMA_VERSION,
@@ -111,6 +125,7 @@ class ConversationLog:
             "metadata": self.metadata,
             "totals": self._totals(),
             "turns": self.turns,
+            "events": self.events,
             "transcript": transcript or [],
         }
 

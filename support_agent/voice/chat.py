@@ -4,6 +4,9 @@ Started with `python -m support_agent --voice`. One turn is:
 
     hold SPACE and speak -> release -> speech-to-text -> agent -> text-to-speech -> speaker
 
+This module only deals with the key, the microphone, the speaker and what is
+printed. What happens to a recording is in pipeline.py.
+
 The transcript and the reply are also printed, so it is easy to see what the
 recogniser understood and what the voice is reading.
 
@@ -24,11 +27,13 @@ from typing import Callable
 
 from support_agent.agent import SupportAgent
 from support_agent.cli import format_trace
-from support_agent.config import ConfigError, load_voice_settings
+from support_agent.config import DEFAULT_SILENCE_LEVEL, ConfigError, load_voice_settings
 from support_agent.conversation_log import VOICE_STAGES, ConversationLog
 from support_agent.prompts import STORE_NAME
+from support_agent.voice.audio import Audio
 from support_agent.voice.keys import NEW, QUIT
-from support_agent.voice.speech import DEFAULT_LANGUAGE, SpeechError, SpeechToText, TextToSpeech
+from support_agent.voice.pipeline import SILENCE, STT_ERROR, Heard, VoiceConversation
+from support_agent.voice.speech import SpeechToText, TextToSpeech
 
 HELP = (
     "Hold SPACE while you talk and release it to send. "
@@ -52,24 +57,22 @@ def run_voice_chat(
     show_trace: bool = True,
     clock: Callable[[], float] = time.perf_counter,
     metadata: dict | None = None,
+    silence_level: int = DEFAULT_SILENCE_LEVEL,
 ) -> None:
     """The voice loop: record, transcribe, let the agent answer, speak, repeat.
 
     `metadata` is added to every conversation log: it says which speech
     providers were used, so timings from different setups can be told apart.
     """
+    # Shared by every conversation of this chat, so the request is synthesized once.
+    repeat_clips: dict[str, Audio] = {}
 
-    def elapsed_ms(started: float) -> int:
-        return round((clock() - started) * 1000)
-
-    def start_conversation() -> tuple[SupportAgent, ConversationLog]:
+    def start_conversation() -> VoiceConversation:
         agent, log = new_conversation()
         log.metadata.update(metadata or {})
-        return agent, log
+        return VoiceConversation(agent, log, stt, tts, clock, silence_level, repeat_clips)
 
-    agent, log = start_conversation()
-    # The voice that reads the reply follows the language the customer speaks.
-    language = DEFAULT_LANGUAGE
+    conversation = start_conversation()
     write(f"{STORE_NAME} voice support. Speak Spanish, Japanese or English.")
     write(HELP)
 
@@ -82,9 +85,8 @@ def run_voice_chat(
         if action == QUIT:
             break
         if action == NEW:
-            _announce_log(log, write)
-            agent, log = start_conversation()
-            language = DEFAULT_LANGUAGE
+            _announce_log(conversation.log, write)
+            conversation = start_conversation()
             write("Started a new conversation.")
             continue
 
@@ -97,65 +99,38 @@ def run_voice_chat(
             write("That was too short. Keep SPACE held while you speak.")
             continue
 
-        started = clock()
         try:
-            transcript = stt.transcribe(audio)
-        except SpeechError as error:
-            write(f"  [speech-to-text error] {error}")
-            continue
-        stt_ms = elapsed_ms(started)
-        if not transcript.text:
-            write("I could not hear anything. Please try again.")
-            continue
-        # An unrecognised language keeps the voice of the previous turn.
-        language = transcript.language or language
-        write(f"You> {transcript.text}")
+            heard = conversation.listen(audio, recorded_at)
+            if not heard.understood:
+                request = conversation.ask_to_repeat(heard)
+                if show_trace:
+                    write(describe_problem(heard, silence_level))
+                write(f"Agent> {request.text}")
+                write("")
+                for clip in request.clips:
+                    speaker.play(clip)
+                continue
 
-        reply = agent.reply(transcript.text, language=language)
-
-        # tts and total are not known yet: they are filled in below.
-        timings = {"stt": stt_ms, "llm": reply.latency_ms, "tts": None, "total": None}
-        voice = {
-            # The language the reply is spoken in, and what the recogniser reported
-            # (None when it heard a language the agent does not support).
-            "language": language,
-            "detected_language": transcript.language,
-            "recording_seconds": round(audio.seconds, 2),
-            "speech_seconds": None,
-            "timings_ms": timings,
-        }
-        # Saved as soon as the agent has answered, so the log survives if the chat
-        # is interrupted while the reply is being spoken.
-        log.record_turn(transcript.text, reply, voice=voice)
-        log.save(agent.messages)
-
-        if show_trace:
-            for line in format_trace(reply):
-                write(line)
-        write(f"Agent> {reply.text}")
-        write("")
-
-        started = clock()
-        try:
-            speech = tts.synthesize(reply.text, language)
-        except SpeechError as error:
-            # The reply is already on screen, so the conversation can go on.
-            write(f"  [text-to-speech error] {error}")
-            continue
-        timings["tts"] = elapsed_ms(started)
-        timings["total"] = elapsed_ms(recorded_at)
-        voice["speech_seconds"] = round(speech.seconds, 2)
-        log.save(agent.messages)
-        if show_trace:
-            write(format_timings(timings))
-
-        try:
-            speaker.play(speech)
+            write(f"You> {heard.transcript.text}")
+            answer = conversation.answer(heard)
+            if show_trace:
+                for line in format_trace(answer.reply):
+                    write(line)
+            write(f"Agent> {answer.reply.text}")
+            write("")
+            if answer.speech is None:
+                # The reply is already on screen, so the conversation can go on.
+                write(f"  [text-to-speech error] {answer.tts_error}")
+                continue
+            if show_trace:
+                write(format_timings(answer.timings_ms))
+            speaker.play(answer.speech)
         except KeyboardInterrupt:
+            # Ctrl+C while waiting for the reply or while it is being spoken.
             write("")
             break
 
-    _announce_log(log, write)
+    _announce_log(conversation.log, write)
 
 
 def format_timings(timings: dict) -> str:
@@ -167,8 +142,20 @@ def format_timings(timings: dict) -> str:
     )
 
 
+def describe_problem(heard: Heard, silence_level: int) -> str:
+    """One line saying why a recording was not passed on to the agent."""
+    if heard.problem == SILENCE:
+        return (
+            f"  [not understood: too quiet, level {heard.level} is under {silence_level}. "
+            "If you did speak, lower VOICE_SILENCE_LEVEL in .env]"
+        )
+    if heard.problem == STT_ERROR:
+        return f"  [speech-to-text error] {heard.error}"
+    return f"  [not understood: {heard.problem}, heard {heard.transcript.text!r}]"
+
+
 def _announce_log(log: ConversationLog, write: Callable[[str], None]) -> None:
-    if log.turns:
+    if log.turns or log.events:
         write(f"Conversation saved to {log.path}")
 
 
@@ -202,12 +189,6 @@ def start_voice_chat(new_conversation: NewConversation, show_trace: bool = True)
     stt = GroqSpeechToText(settings.groq_api_key, settings.stt_model)
     voices = {**DEFAULT_VOICES, **settings.tts_voices}
     tts = EdgeTextToSpeech(voices)
-    metadata = {
-        "stt_provider": "groq",
-        "stt_model": settings.stt_model,
-        "tts_provider": "edge-tts",
-        "tts_voices": voices,
-    }
     print(f"Speech-to-text: {settings.stt_model} (Groq). Text-to-speech: edge-tts.")
     with microphone:
         run_voice_chat(
@@ -218,6 +199,17 @@ def start_voice_chat(new_conversation: NewConversation, show_trace: bool = True)
             tts,
             speaker,
             show_trace=show_trace,
-            metadata=metadata,
+            metadata=speech_metadata(settings, voices),
+            silence_level=settings.silence_level,
         )
     return 0
+
+
+def speech_metadata(settings, voices: dict) -> dict:
+    """Which speech providers produced a conversation, for its log."""
+    return {
+        "stt_provider": "groq",
+        "stt_model": settings.stt_model,
+        "tts_provider": "edge-tts",
+        "tts_voices": dict(voices),
+    }

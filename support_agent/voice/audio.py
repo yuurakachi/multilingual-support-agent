@@ -14,6 +14,7 @@ import io
 import time
 import wave
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -30,6 +31,23 @@ class Audio:
     @property
     def seconds(self) -> float:
         return len(self.samples) / self.sample_rate
+
+    @property
+    def loudness(self) -> float:
+        """How loud the loudest moments are, from 0 (digital silence) to 32768.
+
+        The sound is cut into 30 ms frames and the level of the loudest ones is
+        returned (the 95th percentile, so a single click does not count as
+        speech). A quiet room gives a few dozen; someone talking into the
+        microphone gives hundreds or thousands.
+        """
+        frame = int(self.sample_rate * 0.03)
+        count = len(self.samples) // frame
+        if count == 0:
+            return 0.0
+        frames = self.samples[: count * frame].astype(np.float64).reshape(count, frame)
+        levels = np.sqrt((frames**2).mean(axis=1))
+        return float(np.percentile(levels, 95))
 
     def to_wav(self) -> bytes:
         """Encode as a WAV file, the format sent to the speech recogniser."""
@@ -49,6 +67,16 @@ class Audio:
         samples, sample_rate = soundfile.read(io.BytesIO(data), dtype="int16", always_2d=True)
         # Keep the first channel: speech from these providers is mono anyway.
         return cls(samples[:, 0].copy(), sample_rate)
+
+    @classmethod
+    def load(cls, path: str | Path) -> Audio:
+        return cls.from_encoded(Path(path).read_bytes())
+
+    def save(self, path: str | Path) -> None:
+        """Write a sound file; the extension chooses the format (.mp3, .wav, .flac)."""
+        import soundfile
+
+        soundfile.write(str(path), self.samples, self.sample_rate)
 
 
 class Microphone:

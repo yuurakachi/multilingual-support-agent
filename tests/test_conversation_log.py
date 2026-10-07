@@ -143,6 +143,27 @@ def test_spoken_turn_keeps_its_voice_data_and_later_additions(tmp_path):
     }
 
 
+def test_events_are_saved_with_where_they_happened(tmp_path):
+    log = new_log(tmp_path)
+    log.record_event("unheard_audio", reason="silence", level=40)
+    log.record_turn("hello", reply_with_tool())
+    log.record_event("unheard_audio", reason="no_words", level=900)
+
+    saved = json.loads(log.save().read_text(encoding="utf-8"))
+
+    assert [event["after_turn"] for event in saved["events"]] == [0, 1]
+    assert saved["events"][0]["type"] == "unheard_audio"
+    assert saved["events"][0]["reason"] == "silence"
+    assert saved["events"][0]["level"] == 40
+    assert saved["events"][0]["at"].startswith("2026-10-01T12:00:")
+
+
+def test_a_log_without_events_has_an_empty_list(tmp_path):
+    saved = json.loads(new_log(tmp_path).save().read_text(encoding="utf-8"))
+
+    assert saved["events"] == []
+
+
 def test_failed_turn_keeps_its_error(tmp_path):
     log = new_log(tmp_path)
     error = {"type": "APIConnectionError", "message": "Connection error.", "status_code": None}

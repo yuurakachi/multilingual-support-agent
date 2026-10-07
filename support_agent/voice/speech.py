@@ -27,11 +27,19 @@ class Transcript:
     # One of LANGUAGES, or None when the recogniser heard another language or
     # could not tell.
     language: str | None = None
+    # How sure the recogniser is, as Whisper reports it: the average log
+    # probability of the words, 0 being certain and about -1 a guess. None when
+    # the provider gives no such number.
+    avg_logprob: float | None = None
 
 
 class SpeechToText(Protocol):
-    def transcribe(self, audio: Audio) -> Transcript:
-        """Turn recorded speech into text. Raises SpeechError on failure."""
+    def transcribe(self, audio: Audio, language: str | None = None) -> Transcript:
+        """Turn recorded speech into text. Raises SpeechError on failure.
+
+        `language` (one of LANGUAGES) tells the recogniser what to expect
+        instead of letting it guess the language from the sound.
+        """
         ...
 
 

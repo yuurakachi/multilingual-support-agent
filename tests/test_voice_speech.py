@@ -49,6 +49,37 @@ def test_encoded_sound_is_decoded_back_to_the_same_samples():
     assert np.array_equal(decoded.samples, audio.samples)
 
 
+def test_loudness_tells_speech_from_an_empty_room():
+    room = np.random.default_rng(0).normal(0, 40, 48_000).astype(np.int16)
+
+    assert Audio(np.zeros(16_000, dtype=np.int16), 16_000).loudness == 0
+    assert Audio(room, 16_000).loudness < 100
+    assert tone().loudness > 5000
+    # Too short to hold a single frame.
+    assert Audio(np.zeros(10, dtype=np.int16), 16_000).loudness == 0
+
+
+def test_one_click_in_a_silent_recording_is_not_speech():
+    samples = np.zeros(48_000, dtype=np.int16)
+    samples[20_000:20_200] = 20_000
+
+    assert Audio(samples, 16_000).loudness == 0
+
+
+def test_audio_can_be_saved_and_loaded(tmp_path):
+    audio = tone(seconds=0.5, sample_rate=24_000)
+
+    audio.save(tmp_path / "clip.wav")
+    audio.save(tmp_path / "clip.mp3")
+
+    assert np.array_equal(Audio.load(tmp_path / "clip.wav").samples, audio.samples)
+    # MP3 is lossy and pads the ends: same sound, not the same samples.
+    compressed = Audio.load(tmp_path / "clip.mp3")
+    assert compressed.sample_rate == 24_000
+    assert abs(compressed.seconds - 0.5) < 0.1
+    assert compressed.loudness > 5000
+
+
 # --- Speech-to-text (Groq) ---
 
 
@@ -93,6 +124,31 @@ def test_groq_language_is_one_of_ours_or_none(reported, expected):
     stt = GroqSpeechToText("k", "m", post=FakePost(body={"text": "x", "language": reported}))
 
     assert stt.transcribe(tone()).language == expected
+
+
+def test_groq_is_told_the_language_only_when_one_is_given():
+    post = FakePost(body={"text": "Sí.", "language": "Spanish"})
+    stt = GroqSpeechToText("k", "m", post=post)
+
+    stt.transcribe(tone())
+    stt.transcribe(tone(), language="es")
+
+    assert "language" not in post.calls[0]["data"]
+    assert post.calls[1]["data"]["language"] == "es"
+
+
+def test_groq_confidence_is_the_average_over_the_segments():
+    body = {
+        "text": "hello there",
+        "language": "English",
+        "segments": [{"avg_logprob": -0.2}, {"avg_logprob": -0.4}],
+    }
+
+    assert GroqSpeechToText("k", "m", post=FakePost(body=body)).transcribe(
+        tone()
+    ).avg_logprob == pytest.approx(-0.3)
+    without = GroqSpeechToText("k", "m", post=FakePost(body={"text": "hello"}))
+    assert without.transcribe(tone()).avg_logprob is None
 
 
 def test_groq_silence_gives_an_empty_transcript():
@@ -233,6 +289,14 @@ def test_voice_settings_are_read_from_the_environment():
     assert settings.groq_api_key == "gsk_test"
     assert settings.stt_model == "some-stt-model"
     assert settings.tts_voices == {"es": "es-ES-ElviraNeural"}
+    assert settings.silence_level == 200
+
+
+def test_silence_level_can_be_set_and_must_be_a_number():
+    assert VoiceSettings.from_env({**VOICE_ENV, "VOICE_SILENCE_LEVEL": "80"}).silence_level == 80
+    for wrong in ("loud", "-5"):
+        with pytest.raises(ConfigError, match="VOICE_SILENCE_LEVEL"):
+            VoiceSettings.from_env({**VOICE_ENV, "VOICE_SILENCE_LEVEL": wrong})
 
 
 @pytest.mark.parametrize("missing", ["GROQ_API_KEY", "STT_MODEL"])
