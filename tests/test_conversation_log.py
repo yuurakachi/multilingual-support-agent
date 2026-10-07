@@ -116,6 +116,33 @@ def test_turn_records_messages_tools_tokens_and_latency(tmp_path):
     ]
 
 
+def test_typed_turn_has_no_voice_data(tmp_path):
+    log = new_log(tmp_path)
+    log.record_turn("hello", reply_with_tool())
+
+    (turn,) = json.loads(log.save().read_text(encoding="utf-8"))["turns"]
+
+    assert turn["voice"] is None
+
+
+def test_spoken_turn_keeps_its_voice_data_and_later_additions(tmp_path):
+    log = new_log(tmp_path)
+    timings = {"stt": 900, "llm": 1800, "tts": None, "total": None}
+    voice = {"language": "ja", "recording_seconds": 4.2, "timings_ms": timings}
+    log.record_turn("注文はどこですか？", reply_with_tool(), voice=voice)
+    log.save()
+
+    # The text-to-speech time is only known after the turn was first saved.
+    timings.update(tts=1200, total=3950)
+    (turn,) = json.loads(log.save().read_text(encoding="utf-8"))["turns"]
+
+    assert turn["voice"] == {
+        "language": "ja",
+        "recording_seconds": 4.2,
+        "timings_ms": {"stt": 900, "llm": 1800, "tts": 1200, "total": 3950},
+    }
+
+
 def test_failed_turn_keeps_its_error(tmp_path):
     log = new_log(tmp_path)
     error = {"type": "APIConnectionError", "message": "Connection error.", "status_code": None}

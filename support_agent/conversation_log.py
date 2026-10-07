@@ -28,6 +28,8 @@ from support_agent.channels import TEXT_CHANNEL, Channel
 from support_agent.config import PROJECT_ROOT, Settings
 
 SCHEMA_VERSION = 1
+# Keys of a spoken turn's voice.timings_ms, in the order the stages happen.
+VOICE_STAGES = ("stt", "llm", "tts", "total")
 DEFAULT_LOG_DIR = PROJECT_ROOT / "logs"
 
 
@@ -63,8 +65,16 @@ class ConversationLog:
         self.metadata = dict(metadata or {})
         self.turns: list[dict] = []
 
-    def record_turn(self, user_message: str, reply: AgentReply) -> None:
-        """Add one customer message and everything the agent did to answer it."""
+    def record_turn(
+        self, user_message: str, reply: AgentReply, voice: dict | None = None
+    ) -> None:
+        """Add one customer message and everything the agent did to answer it.
+
+        `voice` is what only a spoken turn has: the language, the length of the
+        audio and the time each stage took (see voice/chat.py). The dict is
+        stored as given, so the caller can fill in what it learns after the
+        reply, such as the text-to-speech time, and save again.
+        """
         self.turns.append(
             {
                 "index": len(self.turns) + 1,
@@ -79,6 +89,8 @@ class ConversationLog:
                 "error": reply.error,
                 "model_calls": [asdict(call) for call in reply.model_calls],
                 "tool_calls": [asdict(call) for call in reply.tool_calls],
+                # None for a typed turn.
+                "voice": voice,
             }
         )
 
