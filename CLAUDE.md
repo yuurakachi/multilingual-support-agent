@@ -45,7 +45,7 @@ Also:
 
 ## Phases
 
-Phases 0-5 (text agent) and phases 6-9 are complete. **Next: phase 10.** The eval system built on the conversation logs is still planned for after the voice channel.
+Phases 0-5 (text agent) and phases 6-10 are complete. **Next: phase 11.** The eval system built on the conversation logs is still planned for after the voice channel.
 
 ### Text agent
 
@@ -76,7 +76,11 @@ Phases 0-5 (text agent) and phases 6-9 are complete. **Next: phase 10.** The eva
    - Left for later phases on purpose: stage timings in the log (phase 9); confirming order numbers and emails, and spoken handling of silence, noise or an unrecognised language (phase 10). Today silence only prints a message, and an unrecognised language keeps the previous turn's voice.
 9. (done) Measure latency: per turn, the log has the time of each stage (STT, LLM including tool calls, TTS, total), and `python -m support_agent.latency_report` prints average and worst case per stage, overall and per language.
    - First real numbers (3 turns, one per language, synthesized customer audio, model and effort from the owner's `.env`): speech-to-text about 1.2 s, agent 5-11 s, text-to-speech 1-3.6 s, total wait 7.5-15.6 s. The agent is by far the largest share. Too few turns to quote as a result: phase 10's audio script will produce a proper sample for the README table of phase 11.
-10. Voice-specific problems: the agent repeats and confirms key data (order numbers, emails) before using tools, because dictation garbles them; empty audio, noise or unintelligible transcripts make it ask the customer to repeat; test audio files generated with the TTS from the existing scenarios in the three languages, and a script that runs them through the whole pipeline without a microphone.
+10. (done) Voice-specific problems: the agent says back and confirms order numbers, emails and new addresses before using tools; silence, noise or unintelligible transcripts get a spoken request to repeat with no model call; sound files of every scenario line in `scenarios/audio/` (made with edge-tts) and `python -m support_agent.run_voice_scenarios`, which runs them through the whole pipeline without a microphone.
+   - Result of the last full run (2026-10-07, model and effort from the owner's `.env`): **8 of 10 spoken scenarios pass**, the confirmation check passes in all of them. Latency over 27 turns: speech-to-text 2.1 s average / 5.7 s worst, agent 2.8 / 5.5, text-to-speech 2.5 / 5.8, total wait 7.4 / 12.8 (Japanese is the slowest: 8.4 s average). Logs in `logs/voice_scenarios/20261007T030803Z/` on the owner's machine (git-ignored). Use these numbers for the README table of phase 11, or a fresh run.
+   - The two failures are the recogniser losing an email, not the agent: `ja_address_change` ("yuki" heard as "き") and `es_wrong_order_number_then_corrected` (the sentence with the email is dropped from the transcript). Both times the agent noticed and asked for the email again, but the scripted customer can only answer "yes". The owner has not decided whether to leave them as documented limitations, reword those spoken lines, or change the customer voice: **ask before changing the fixtures**.
+   - `ja_refund_window_expired` can pass without ever calling `request_refund` (the agent keeps confirming the email until the script ends), because its only expectation is `must_not_succeed`. Known weak check.
+   - Not verified with a real voice: the silence level (default 200, from a room that measured about 70 and synthetic speech at about 5800). The owner should try it and adjust `VOICE_SILENCE_LEVEL` if their speech is rejected.
 11. README and Pull Request: Mermaid diagram of the voice flow, table of measured latencies, decisions and trade-offs (providers chosen, why push-to-talk), limitations, a "Next steps" section (streaming to cut latency, barge-in, connecting to a real phone line). Open the PR to `main` with a clear description.
 
 ## Commands
@@ -90,6 +94,7 @@ python -m support_agent        # interactive chat against the live API (--reset-
 python -m support_agent --voice   # push-to-talk voice chat: hold SPACE to talk, N new conversation, Q or Esc to leave. Needs a microphone, GROQ_API_KEY and STT_MODEL in .env
 python -m support_agent.run_scenarios   # ten scripted conversations against the live API (costs ~$0.12 per full run)
 python -m support_agent.latency_report  # average and worst-case latency per voice stage, from logs/ (or pass log files / folders)
+python -m support_agent.run_voice_scenarios   # the ten scenarios as speech, no microphone, live APIs (about $0.15 of Claude per full run; --play to listen, --list, --make-audio to regenerate scenarios/audio/)
 ```
 
 ## Layout
@@ -111,7 +116,11 @@ python -m support_agent.latency_report  # average and worst-case latency per voi
   - `stt_groq.py` — `GroqSpeechToText`: one HTTP POST with `httpx2`, returns text and language
   - `tts_edge.py` — `EdgeTextToSpeech`: one voice per language, MP3 decoded with `soundfile`
   - `keys.py` — `PushToTalkKey`: `wait()` -> TALK / NEW / QUIT, `is_held()`, `drain()`; Windows only
-  - `chat.py` — `run_voice_chat` (every part injectable) and `start_voice_chat` (wires the real ones)
+  - `pipeline.py` — `VoiceConversation`: `listen(audio)` -> `Heard`, `ask_to_repeat(heard)`, `answer(heard)` -> `Answer`. All the logic of a spoken turn, with no key, microphone or speaker
+  - `chat.py` — `run_voice_chat` (every part injectable) and `start_voice_chat` (wires the real ones): only the key, microphone, speaker and printing
+  - `scenarios.py` — spoken version of the scenarios: `spoken_lines`, `make_audio`, `audio_problems`, `check_voice`, `run_voice_scenario`
+- `support_agent/run_voice_scenarios.py` — CLI that runs the spoken scenarios and prints results plus latency
+- `scenarios/audio/` — one MP3 per customer line plus `manifest.json` (the text each file was made from); committed, about 1 MB
 - `scenarios/scenarios.json` — the ten scripted conversations and their expectations
 - `support_agent/scenarios.py` — loading/validating scenarios, `check_expectations`, `run_scenario` (fresh in-memory seeded store per scenario)
 - `support_agent/run_scenarios.py` — runner CLI: prints each conversation, writes `logs/scenarios/<run id>/` with `summary.json`
@@ -137,8 +146,12 @@ python -m support_agent.latency_report  # average and worst-case latency per voi
 - Speech providers sit behind the `SpeechToText` / `TextToSpeech` protocols and raise `SpeechError`; the voice loop catches it and keeps the chat alive. Unit tests use fakes (`tests/test_voice_chat.py`) and never touch the microphone, the speaker or the network.
 - The speech-to-text model name comes from `STT_MODEL` in `.env`, like the Claude model.
 - Every turn in a log has a `voice` key: `null` for a typed turn, and for a spoken one `language`, `detected_language`, `recording_seconds`, `speech_seconds` and `timings_ms` with `stt`, `llm`, `tts`, `total`. `llm` is the agent's own `latency_ms`. `total` runs from the end of the recording (0.2 s after the key is released) until the reply audio is ready to play, so it is slightly more than the three stages added up. `tts` and `total` are `null` when text-to-speech failed. These names are part of the log contract.
-- `run_voice_chat` saves the turn as soon as the agent answers and again once text-to-speech is timed: it mutates the `voice` dict it passed to `record_turn`. Keep the first save, it is what survives an interruption.
+- `VoiceConversation.answer` saves the turn as soon as the agent answers and again once text-to-speech is timed: it mutates the `voice` dict it passed to `record_turn`. Keep the first save, it is what survives an interruption.
+- A recording reaches the agent only if `listen` accepts it. Rejections, in order: `silence` (`Audio.loudness` under the silence level; checked first and without calling speech-to-text, because Whisper answers silence with a confident "Thank you."), `no_words`, `low_confidence` (`avg_logprob` under -1.0), `unsupported_language`, `stt_error`. A rejection is answered with the fixed `REPEAT_MESSAGES`, costs no model call, does not enter the agent's history and is logged as an `unheard_audio` entry in the log's top-level `events` list. Groq always reports `no_speech_prob` 0, so it is not used.
+- Clips under 3 s are transcribed with the conversation's language as a hint (a Spanish "Sí." came back as an English "C." without it); longer clips are auto-detected so the customer can switch language. A wrong hint on a long clip produces garbage, so do not extend the hint to every clip.
+- `scenarios.json` has an optional `voice_confirm_after` per scenario: the turns after which the spoken customer says "yes, that's right". Editing a scenario's turns requires `--make-audio`; a test fails while the manifest and the scenarios disagree.
+- `ConversationLog.save` retries `os.replace` on `PermissionError`: on Windows the antivirus briefly locks a file that was just written.
 - `tts_edge.py` calls `truststore.inject_into_ssl()` before importing `edge_tts`: the owner's antivirus re-signs HTTPS and edge-tts would fail certificate checks otherwise. Do not remove it or disable verification. `Communicate.stream_sync()` hung on that error, so the async API is used with a time limit.
-- The voice prompt (`VOICE_*` in `prompts.py`) is new and may be tuned, but tell the owner what changed and why. It was adjusted once in phase 8: number words in the language being spoken, and tracking numbers offered instead of recited.
+- The voice prompt (`VOICE_*` in `prompts.py`) is new and may be tuned, but tell the owner what changed and why. It was adjusted in phase 8 (number words in the language being spoken, tracking numbers offered instead of recited) and in phase 10 (confirm order number, email and address before any tool; handing over to a human never waits for a confirmation, added after `ja_upset_customer` stopped escalating).
 - The text channel is the default everywhere and its system prompt must stay byte-identical unless the owner agrees to a change: logs identify the prompt by `system_prompt_sha256`. Logs also carry the channel name in `channel`.
 - Do not tune the system prompt just to make a scenario pass without telling the owner; a failing scenario is information.

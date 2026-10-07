@@ -182,15 +182,24 @@ python -m support_agent --voice
 
 Hold SPACE while you talk and release it to send. The agent's answer is printed and read aloud. `N` starts a new conversation, `Q` or `Esc` leaves. It needs a microphone, a free Groq key in `.env`, and Windows (the push-to-talk key reads the Windows key state).
 
+On a call the agent says back the order number and the email and waits for a yes before it uses them:
+
 ```text
-Listening... release SPACE to send.
-You> Hola, quiero saber dónde está mi pedido. El número es ORD1002 y mi correo es maria.garcia.example.com.
+You> Hola, ¿me pueden decir cómo va mi pedido ORD-1002? Mi correo es maria.garcia.example.com.
+  [1 model call(s), 2.0 s, 3190 tokens in / 74 out, stop: end_turn]
+Agent> Claro, con gusto la ayudo. Entendí que el pedido es O, R, D, uno, cero, cero, dos, y que su correo es maria punto garcia arroba example punto com. ¿Es correcto?
+  [waited 7.0 s: speech-to-text 3.0 s, agent 2.0 s, text-to-speech 1.9 s]
+
+You> Sí, es correcto.
   [tool] get_order_status {"order_id": "ORD-1002", "email": "maria.garcia@example.com"} -> ok
-  [2 model call(s), 4.2 s, 6407 tokens in / 281 out, stop: end_turn]
-Agent> Su pedido ya salió. Se envió el dos de octubre y todavía no se ha entregado. Va a la Calle de Alcalá cuarenta y cinco, en Madrid. Tiene un número de seguimiento, ¿quiere que se lo lea?
+  [2 model call(s), 3.0 s, 6844 tokens in / 164 out, stop: end_turn]
+Agent> Su pedido ya fue enviado. Salió el dos de octubre y todavía no se ha entregado. Incluye unos auriculares inalámbricos, y tiene un número de seguimiento que puedo leerle si quiere.
+  [waited 6.3 s: speech-to-text 0.8 s, agent 3.0 s, text-to-speech 2.4 s]
 ```
 
-The `You>` line is what the speech recogniser understood, mistakes included: the order number lost its hyphen and the email its `@`. The agent works out the written form before calling the tool, and writes its answer for the ear: dates and amounts in words, no lists, long codes offered instead of recited.
+The `You>` line is what the speech recogniser understood, mistakes included: here the email lost its `@`. The agent works out the written form, reads it back, and only calls the tool after the customer confirms. Its answers are written for the ear: dates and amounts in words, no lists, long codes offered instead of recited.
+
+When a recording cannot be understood, the agent asks the customer to say it again with a fixed spoken message, without calling the model. That covers a recording too quiet to be speech, a transcript with no words, one the recogniser was guessing, and a language other than the three supported. Each case is noted in the log as an `unheard_audio` event. If your own voice is rejected as too quiet, the chat prints the measured level: lower `VOICE_SILENCE_LEVEL` in `.env`.
 
 It is the same agent as the text chat. Speech-to-text (Whisper on Groq's free tier) turns the recording into the text passed to `SupportAgent.reply()`, and text-to-speech (`edge-tts`) reads the reply with a voice native to the language the customer spoke. Both are free and sit behind small interfaces in [`support_agent/voice/speech.py`](support_agent/voice/speech.py).
 
@@ -211,16 +220,59 @@ python -m support_agent.latency_report PATH ...   # these log files or folders
 ```
 
 ```text
-Voice latency: 3 spoken turn(s) in 3 conversation(s)
+Voice latency: 27 spoken turn(s) in 10 conversation(s)
 
 STAGE                    TURNS   AVERAGE     WORST
-speech-to-text               3    1.22 s    1.33 s
-agent (model + tools)        3    7.23 s   10.67 s
-text-to-speech               3    2.01 s    3.62 s
-total wait                   3   10.45 s   15.63 s
+speech-to-text              27    2.10 s    5.69 s
+agent (model + tools)       27    2.84 s    5.46 s
+text-to-speech              27    2.45 s    5.82 s
+total wait                  27    7.39 s   12.81 s
 ```
 
-The same table is printed per language, followed by the slowest turn and the log it is in. The numbers above are a first run of three turns, too few to draw conclusions from, but they already show where the time goes: the agent, which needs two model calls whenever it uses a tool.
+The same table is printed per language, followed by the slowest turn and the log it is in. The numbers above come from one run of the ten spoken scenarios described below, with `claude-sonnet-5-5` at `medium` effort. The customer waits about seven seconds for an answer, split almost evenly between hearing, thinking and speaking, and twice that when the services are slow.
+
+### Spoken scenarios (no microphone)
+
+Every customer line of [`scenarios/scenarios.json`](scenarios/scenarios.json) also exists as a sound file in [`scenarios/audio/`](scenarios/audio/), read once by a text-to-speech voice. A script sends them through the real pipeline: speech-to-text, the agent on a freshly seeded store, text-to-speech.
+
+```bash
+python -m support_agent.run_voice_scenarios                    # all ten
+python -m support_agent.run_voice_scenarios es_order_status    # only these
+python -m support_agent.run_voice_scenarios --play             # also hear both sides
+python -m support_agent.run_voice_scenarios --list             # the spoken lines
+python -m support_agent.run_voice_scenarios --make-audio       # regenerate the sound files
+```
+
+A spoken scenario has more turns than the written one: after the customer gives an order number or an email, the agent reads it back, and the script answers "yes, that's right" (`voice_confirm_after` in the scenarios file says where). The checks are the ones of the text scenarios plus three for voice:
+
+- every customer line was understood;
+- every reply was turned into speech;
+- no order number or email was used with a tool before the customer confirmed it.
+
+```text
+RESULT SCENARIO                                TOOLS (in order)
+PASS   es_order_status                         get_order_status:ok
+FAIL   ja_address_change                       -
+PASS   en_refund_in_window                     request_refund:ok
+PASS   ja_refund_window_expired                -
+PASS   es_address_change_after_shipping        update_shipping_address:error
+PASS   en_someone_elses_order                  get_order_status:error
+PASS   es_asks_for_human                       escalate_to_human:ok
+PASS   ja_upset_customer                       escalate_to_human:ok
+PASS   en_cancel_order_not_supported           create_support_ticket:ok
+FAIL   es_wrong_order_number_then_corrected    -
+------------------------------------------------------------------------------
+8 of 10 scenarios passed. 34 model calls, 7 tool calls, 77 s, 114413 tokens in / 4190 out.
+```
+
+The confirmation check passed in all ten. The two failures are the speech recogniser losing an email, and they show both the value and the limit of this kind of test:
+
+- `ja_address_change`: `yuki.tanaka@example.jp` was heard as `き.tanaka.example.jp`.
+- `es_wrong_order_number_then_corrected`: the sentence with the email was dropped from the transcript altogether.
+
+Both times the agent noticed, did not guess, and asked for the email again, which is the behaviour the confirmation rule is there for. A scripted customer cannot repeat or spell anything, so the conversation ends there. One pass is also weaker than it looks: in `ja_refund_window_expired` the agent was still confirming the email when the script ran out, so the refund was never attempted and "the refund never succeeded" was true by default.
+
+The run ends with the latency table described above, measured over every spoken turn.
 
 ### Unit tests
 
@@ -228,7 +280,7 @@ The same table is printed per language, followed by the slowest turn and the log
 pytest
 ```
 
-210 tests, no API key, microphone or network needed: the agent, the chat and the scenario runner are tested against a scripted fake client, and the tools against a small hand-written store.
+268 tests, no API key, microphone or network needed: the agent, the chat and the scenario runner are tested against a scripted fake client, and the tools against a small hand-written store.
 
 ## Conversation logs
 
@@ -266,6 +318,9 @@ Every conversation is saved to `logs/<timestamp>_<id>.json` and rewritten after 
       //            "recording_seconds": 10.06, "speech_seconds": 17.45,
       //            "timings_ms": { "stt": 1306, "llm": 5616, "tts": 1295, "total": 8222 } }
     }
+  ],
+  "events": [                           // outside any turn, e.g. audio nobody understood
+    { "type": "unheard_audio", "after_turn": 1, "reason": "silence", "level": 68, ... }
   ],
   "transcript": [ ... ]                 // raw message history exactly as sent to the API
 }
@@ -380,10 +435,12 @@ support_agent/
   config.py            settings read from .env
   conversation_log.py  structured JSON log
   cli.py               entry point and terminal chat
-  voice/               push-to-talk voice chat: microphone, speech-to-text, text-to-speech
+  voice/               push-to-talk voice chat: microphone, speech-to-text, text-to-speech,
+                       the checks on what was heard, and the spoken scenarios
   scenarios.py         scenario loading, checks and execution
   run_scenarios.py     scenario runner
   latency_report.py    average and worst-case latency per voice stage, from the logs
+  run_voice_scenarios.py  the scenarios as speech, through the whole voice pipeline
 scenarios/             the ten scripted conversations
 tests/                 unit tests (no API calls)
 data/                  SQLite database (generated, not committed)
