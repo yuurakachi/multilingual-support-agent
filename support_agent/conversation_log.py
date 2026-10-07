@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -42,6 +43,23 @@ def _to_jsonable(value):
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json")
     return vars(value)
+
+
+def _replace(temporary: Path, path: Path, attempts: int = 6) -> None:
+    """Swap the new file in, waiting a moment if Windows has the old one locked.
+
+    On Windows a file cannot be replaced while another program has it open, and
+    an antivirus or an indexer opens every file that was just written. The voice
+    chat saves the log more than once per turn, which is often enough to collide.
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            os.replace(temporary, path)
+            return
+        except PermissionError:
+            if attempt == attempts:
+                raise
+            time.sleep(0.05 * attempt)
 
 
 class ConversationLog:
@@ -139,7 +157,7 @@ class ConversationLog:
         # cannot leave a half-written log behind.
         temporary = self.path.with_suffix(".json.tmp")
         temporary.write_text(text + "\n", encoding="utf-8")
-        os.replace(temporary, self.path)
+        _replace(temporary, self.path)
         return self.path
 
     def _totals(self) -> dict:

@@ -51,6 +51,10 @@ class Scenario:
     description: str
     turns: tuple[str, ...]
     expect: Expectations
+    # Voice only: the turns (counted from 1) after which the spoken customer
+    # answers "yes, that's right", because on a call the agent reads order
+    # numbers and emails back before using them. Ignored by the text runner.
+    voice_confirm_after: tuple[int, ...] = ()
 
 
 @dataclass
@@ -93,6 +97,7 @@ def _parse_scenario(raw: dict) -> Scenario:
             description=raw["description"],
             turns=tuple(raw["turns"]),
             expect=expect,
+            voice_confirm_after=tuple(raw.get("voice_confirm_after", ())),
         )
     except (KeyError, TypeError) as error:
         raise ScenarioError(f"Scenario {scenario_id}: invalid or missing field ({error})") from None
@@ -101,6 +106,13 @@ def _parse_scenario(raw: dict) -> Scenario:
         raise ScenarioError(f"Scenario {scenario_id}: unknown language {scenario.language!r}")
     if not scenario.turns or not all(isinstance(turn, str) and turn for turn in scenario.turns):
         raise ScenarioError(f"Scenario {scenario_id}: turns must be non-empty strings")
+    if not all(
+        isinstance(number, int) and 1 <= number <= len(scenario.turns)
+        for number in scenario.voice_confirm_after
+    ):
+        raise ScenarioError(
+            f"Scenario {scenario_id}: voice_confirm_after must hold turn numbers"
+        )
     named_tools = {*expect.must_succeed, *expect.must_succeed_one_of, *expect.must_not_succeed}
     unknown = sorted(named_tools - set(TOOL_FUNCTIONS))
     if unknown:

@@ -1,6 +1,9 @@
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+
+import pytest
 
 from support_agent.agent import AgentReply, ModelCall, ToolCall
 from support_agent.config import Settings
@@ -235,6 +238,39 @@ def test_saving_again_updates_the_same_file(tmp_path):
     assert first_path == second_path
     assert [path.name for path in tmp_path.iterdir()] == [first_path.name]
     assert len(json.loads(second_path.read_text(encoding="utf-8"))["turns"]) == 2
+
+
+def test_saving_waits_when_the_file_is_briefly_locked(tmp_path, monkeypatch):
+    """On Windows an antivirus can hold the old file open for a moment."""
+    real_replace = os.replace
+    attempts = []
+
+    def locked_twice(source, target):
+        attempts.append(target)
+        if len(attempts) <= 2:
+            raise PermissionError(5, "Access is denied")
+        real_replace(source, target)
+
+    monkeypatch.setattr(os, "replace", locked_twice)
+    monkeypatch.setattr("support_agent.conversation_log.time.sleep", lambda seconds: None)
+    log = new_log(tmp_path)
+    log.record_turn("hello", reply_with_tool())
+
+    path = log.save()
+
+    assert len(attempts) == 3
+    assert len(json.loads(path.read_text(encoding="utf-8"))["turns"]) == 1
+
+
+def test_saving_gives_up_if_the_file_stays_locked(tmp_path, monkeypatch):
+    def always_locked(source, target):
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(os, "replace", always_locked)
+    monkeypatch.setattr("support_agent.conversation_log.time.sleep", lambda seconds: None)
+
+    with pytest.raises(PermissionError):
+        new_log(tmp_path).save()
 
 
 def test_each_conversation_gets_its_own_file(tmp_path):
