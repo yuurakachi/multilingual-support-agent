@@ -194,13 +194,41 @@ The `You>` line is what the speech recogniser understood, mistakes included: the
 
 It is the same agent as the text chat. Speech-to-text (Whisper on Groq's free tier) turns the recording into the text passed to `SupportAgent.reply()`, and text-to-speech (`edge-tts`) reads the reply with a voice native to the language the customer spoke. Both are free and sit behind small interfaces in [`support_agent/voice/speech.py`](support_agent/voice/speech.py).
 
+### Measuring voice latency
+
+Every spoken turn is timed stage by stage, and the times are saved in its log:
+
+- `stt`: speech-to-text.
+- `llm`: the agent, with every model call and tool call of the turn.
+- `tts`: text-to-speech.
+- `total`: from the end of the recording until the reply is ready to play, which is how long the customer waits in silence.
+
+The chat shows them after each reply, and a script summarises every log it finds:
+
+```bash
+python -m support_agent.latency_report            # all logs under logs/
+python -m support_agent.latency_report PATH ...   # these log files or folders
+```
+
+```text
+Voice latency: 3 spoken turn(s) in 3 conversation(s)
+
+STAGE                    TURNS   AVERAGE     WORST
+speech-to-text               3    1.22 s    1.33 s
+agent (model + tools)        3    7.23 s   10.67 s
+text-to-speech               3    2.01 s    3.62 s
+total wait                   3   10.45 s   15.63 s
+```
+
+The same table is printed per language, followed by the slowest turn and the log it is in. The numbers above are a first run of three turns, too few to draw conclusions from, but they already show where the time goes: the agent, which needs two model calls whenever it uses a tool.
+
 ### Unit tests
 
 ```bash
 pytest
 ```
 
-197 tests, no API key, microphone or network needed: the agent, the chat and the scenario runner are tested against a scripted fake client, and the tools against a small hand-written store.
+210 tests, no API key, microphone or network needed: the agent, the chat and the scenario runner are tested against a scripted fake client, and the tools against a small hand-written store.
 
 ## Conversation logs
 
@@ -232,7 +260,11 @@ Every conversation is saved to `logs/<timestamp>_<id>.json` and rewritten after 
           "input": { "order_id": "ORD-1007", "email": "...", "reason": "..." },
           "result": { "ok": true, "refund_id": "RF-0001", "status": "requested" },
           "is_error": false, "latency_ms": 19 }
-      ]
+      ],
+      "voice": null                     // typed turn; a spoken turn looks like this:
+      // "voice": { "language": "es", "detected_language": "es",
+      //            "recording_seconds": 10.06, "speech_seconds": 17.45,
+      //            "timings_ms": { "stt": 1306, "llm": 5616, "tts": 1295, "total": 8222 } }
     }
   ],
   "transcript": [ ... ]                 // raw message history exactly as sent to the API
@@ -351,6 +383,7 @@ support_agent/
   voice/               push-to-talk voice chat: microphone, speech-to-text, text-to-speech
   scenarios.py         scenario loading, checks and execution
   run_scenarios.py     scenario runner
+  latency_report.py    average and worst-case latency per voice stage, from the logs
 scenarios/             the ten scripted conversations
 tests/                 unit tests (no API calls)
 data/                  SQLite database (generated, not committed)

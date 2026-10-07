@@ -45,7 +45,7 @@ Also:
 
 ## Phases
 
-Phases 0-5 (text agent) and phases 6-8 are complete. **Next: phase 9.** The eval system built on the conversation logs is still planned for after the voice channel.
+Phases 0-5 (text agent) and phases 6-9 are complete. **Next: phase 10.** The eval system built on the conversation logs is still planned for after the voice channel.
 
 ### Text agent
 
@@ -74,7 +74,8 @@ Phases 0-5 (text agent) and phases 6-8 are complete. **Next: phase 9.** The eval
 8. (done) Basic voice loop: push-to-talk in the terminal (hold SPACE, speak, release, the agent answers with audio), working on Windows. Voice mode in the system prompt: short, conversational answers, no Markdown or lists, numbers and IDs written so they read well aloud.
    - Verified without a microphone in the three languages (synthesized customer audio -> Groq -> live agent -> edge-tts). The real microphone and key were smoke-tested on the owner's machine but a spoken conversation has to be tried by the owner.
    - Left for later phases on purpose: stage timings in the log (phase 9); confirming order numbers and emails, and spoken handling of silence, noise or an unrecognised language (phase 10). Today silence only prints a message, and an unrecognised language keeps the previous turn's voice.
-9. Measure latency: per turn, log the time of each stage (STT, LLM including tool calls, TTS, total) in the JSON logs, plus a script that prints average and worst case per stage.
+9. (done) Measure latency: per turn, the log has the time of each stage (STT, LLM including tool calls, TTS, total), and `python -m support_agent.latency_report` prints average and worst case per stage, overall and per language.
+   - First real numbers (3 turns, one per language, synthesized customer audio, model and effort from the owner's `.env`): speech-to-text about 1.2 s, agent 5-11 s, text-to-speech 1-3.6 s, total wait 7.5-15.6 s. The agent is by far the largest share. Too few turns to quote as a result: phase 10's audio script will produce a proper sample for the README table of phase 11.
 10. Voice-specific problems: the agent repeats and confirms key data (order numbers, emails) before using tools, because dictation garbles them; empty audio, noise or unintelligible transcripts make it ask the customer to repeat; test audio files generated with the TTS from the existing scenarios in the three languages, and a script that runs them through the whole pipeline without a microphone.
 11. README and Pull Request: Mermaid diagram of the voice flow, table of measured latencies, decisions and trade-offs (providers chosen, why push-to-talk), limitations, a "Next steps" section (streaming to cut latency, barge-in, connecting to a real phone line). Open the PR to `main` with a clear description.
 
@@ -88,6 +89,7 @@ pytest
 python -m support_agent        # interactive chat against the live API (--reset-db, --quiet)
 python -m support_agent --voice   # push-to-talk voice chat: hold SPACE to talk, N new conversation, Q or Esc to leave. Needs a microphone, GROQ_API_KEY and STT_MODEL in .env
 python -m support_agent.run_scenarios   # ten scripted conversations against the live API (costs ~$0.12 per full run)
+python -m support_agent.latency_report  # average and worst-case latency per voice stage, from logs/ (or pass log files / folders)
 ```
 
 ## Layout
@@ -100,7 +102,8 @@ python -m support_agent.run_scenarios   # ten scripted conversations against the
 - `support_agent/channels.py` — `Channel` (name, system prompt, fallback message, optional per-language fallbacks), `TEXT_CHANNEL` and `VOICE_CHANNEL`
 - `support_agent/config.py` — `Settings` from env (`ANTHROPIC_MODEL`, optional `ANTHROPIC_EFFORT`, `AGENT_MAX_ITERATIONS`) and `VoiceSettings` (`GROQ_API_KEY`, `STT_MODEL`, optional `TTS_VOICE_ES/JA/EN`)
 - `support_agent/agent.py` — `SupportAgent.reply()`, the hand-written loop; returns `AgentReply` (text, stop_reason, iterations, latency_ms, model_calls, tool_calls, usage, error). `build_agent(conn, settings, channel)` creates the live one
-- `support_agent/conversation_log.py` — `ConversationLog`: one JSON file per conversation (`record_turn`, `save(transcript)`); accepts free-form `metadata` and the `channel`
+- `support_agent/conversation_log.py` — `ConversationLog`: one JSON file per conversation (`record_turn`, `save(transcript)`); accepts free-form `metadata` and the `channel`; `record_turn(..., voice=...)` stores a spoken turn's data; `VOICE_STAGES` names the timed stages
+- `support_agent/latency_report.py` — reads logs, `summarize` (count, average, worst per stage; per language; slowest turn) and the report CLI
 - `support_agent/cli.py` + `__main__.py` — entry point and terminal chat, the interface of the text channel; `run_chat` takes injectable `read`/`write` so tests can script it. `--voice` hands over to `voice/chat.py`
 - `support_agent/voice/` — the voice channel's interface (imported only with `--voice`):
   - `speech.py` — `SpeechToText` / `TextToSpeech` protocols, `Transcript`, `SpeechError`, `LANGUAGES`
@@ -133,6 +136,8 @@ python -m support_agent.run_scenarios   # ten scripted conversations against the
 - Voice code never decides what to answer: it only turns sound into the text passed to `reply()` and the reply back into sound. `agent.reply(text, language=...)` takes the language only to choose the fallback message; it is not sent to the model.
 - Speech providers sit behind the `SpeechToText` / `TextToSpeech` protocols and raise `SpeechError`; the voice loop catches it and keeps the chat alive. Unit tests use fakes (`tests/test_voice_chat.py`) and never touch the microphone, the speaker or the network.
 - The speech-to-text model name comes from `STT_MODEL` in `.env`, like the Claude model.
+- Every turn in a log has a `voice` key: `null` for a typed turn, and for a spoken one `language`, `detected_language`, `recording_seconds`, `speech_seconds` and `timings_ms` with `stt`, `llm`, `tts`, `total`. `llm` is the agent's own `latency_ms`. `total` runs from the end of the recording (0.2 s after the key is released) until the reply audio is ready to play, so it is slightly more than the three stages added up. `tts` and `total` are `null` when text-to-speech failed. These names are part of the log contract.
+- `run_voice_chat` saves the turn as soon as the agent answers and again once text-to-speech is timed: it mutates the `voice` dict it passed to `record_turn`. Keep the first save, it is what survives an interruption.
 - `tts_edge.py` calls `truststore.inject_into_ssl()` before importing `edge_tts`: the owner's antivirus re-signs HTTPS and edge-tts would fail certificate checks otherwise. Do not remove it or disable verification. `Communicate.stream_sync()` hung on that error, so the async API is used with a time limit.
 - The voice prompt (`VOICE_*` in `prompts.py`) is new and may be tuned, but tell the owner what changed and why. It was adjusted once in phase 8: number words in the language being spoken, and tracking numbers offered instead of recited.
 - The text channel is the default everywhere and its system prompt must stay byte-identical unless the owner agrees to a change: logs identify the prompt by `system_prompt_sha256`. Logs also carry the channel name in `channel`.
