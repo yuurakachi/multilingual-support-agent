@@ -2,7 +2,7 @@
 
 Portfolio project: a multilingual (Spanish, Japanese, English) customer support AI agent for a fictional online store. The owner is learning, so the goal is understanding as much as a working result.
 
-The text agent is finished (phases 0-5). **Current work: adding a voice channel** on the `voice` branch (phases 6-11 below).
+The text agent (phases 0-5) and the voice channel (phases 6-11) are finished. The voice work is on the `voice` branch, with a Pull Request to `main` open for the owner to review and merge (`gh pr view voice`).
 
 ## Voice channel goal
 
@@ -41,11 +41,11 @@ Also:
 - Small, frequent commits inside each phase.
 - If something is ambiguous, ask instead of assuming.
 - At the end of each phase, update this file (these rules, the voice goal, phases done, next phase) so the work can continue in a new session without losing context.
-- Voice work happens on the `voice` branch. At the end (phase 11) a Pull Request to `main` is opened with `gh pr create`. Do not merge into `main` before that.
+- Voice work happens on the `voice` branch. Its Pull Request to `main` was opened in phase 11. Merging is the owner's decision: never merge it or push to `main` yourself. Follow-up changes to the voice channel go on `voice` while the PR is open.
 
 ## Phases
 
-Phases 0-5 (text agent) and phases 6-10 are complete. **Next: phase 11.** The eval system built on the conversation logs is still planned for after the voice channel.
+Phases 0-5 (text agent) and phases 6-11 are complete. **Nothing is in progress.** Wait for the owner to say what is next. The eval system built on the conversation logs is still planned for after the voice channel.
 
 ### Text agent
 
@@ -78,10 +78,11 @@ Phases 0-5 (text agent) and phases 6-10 are complete. **Next: phase 11.** The ev
    - First real numbers (3 turns, one per language, synthesized customer audio, model and effort from the owner's `.env`): speech-to-text about 1.2 s, agent 5-11 s, text-to-speech 1-3.6 s, total wait 7.5-15.6 s. The agent is by far the largest share. Too few turns to quote as a result: phase 10's audio script will produce a proper sample for the README table of phase 11.
 10. (done) Voice-specific problems: the agent says back and confirms order numbers, emails and new addresses before using tools; silence, noise or unintelligible transcripts get a spoken request to repeat with no model call; sound files of every scenario line in `scenarios/audio/` (made with edge-tts) and `python -m support_agent.run_voice_scenarios`, which runs them through the whole pipeline without a microphone.
    - Result of the last full run (2026-10-07, model and effort from the owner's `.env`): **8 of 10 spoken scenarios pass**, the confirmation check passes in all of them. Latency over 27 turns: speech-to-text 2.1 s average / 5.7 s worst, agent 2.8 / 5.5, text-to-speech 2.5 / 5.8, total wait 7.4 / 12.8 (Japanese is the slowest: 8.4 s average). Logs in `logs/voice_scenarios/20261007T030803Z/` on the owner's machine (git-ignored). Use these numbers for the README table of phase 11, or a fresh run.
-   - The two failures are the recogniser losing an email, not the agent: `ja_address_change` ("yuki" heard as "き") and `es_wrong_order_number_then_corrected` (the sentence with the email is dropped from the transcript). Both times the agent noticed and asked for the email again, but the scripted customer can only answer "yes". The owner has not decided whether to leave them as documented limitations, reword those spoken lines, or change the customer voice: **ask before changing the fixtures**.
+   - The two failures are the recogniser losing an email, not the agent: `ja_address_change` ("yuki" heard as "き") and `es_wrong_order_number_then_corrected` (the sentence with the email is dropped from the transcript). Both times the agent noticed and asked for the email again, but the scripted customer can only answer "yes". **Owner's decision (2026-10-07): leave them failing**, as documented limitations. Do not reword those spoken lines, change the customer voice or tune the prompt to make them pass. The runner therefore exits with code 1 on a full run; that is expected.
    - `ja_refund_window_expired` can pass without ever calling `request_refund` (the agent keeps confirming the email until the script ends), because its only expectation is `must_not_succeed`. Known weak check.
    - Not verified with a real voice: the silence level (default 200, from a room that measured about 70 and synthetic speech at about 5800). The owner should try it and adjust `VOICE_SILENCE_LEVEL` if their speech is rejected.
-11. README and Pull Request: Mermaid diagram of the voice flow, table of measured latencies, decisions and trade-offs (providers chosen, why push-to-talk), limitations, a "Next steps" section (streaming to cut latency, barge-in, connecting to a real phone line). Open the PR to `main` with a clear description.
+11. (done) README and Pull Request: the README has a "Voice channel" section (Mermaid diagram of the voice flow, what changes on a call, handling of audio that was not understood, table of measured latencies, spoken scenarios), voice decisions and trade-offs (providers, why push-to-talk), voice limitations, and "Next steps" (streaming, barge-in, a real phone line, the eval system). The PR from `voice` to `main` is open.
+   - README numbers come from real runs: do not replace them with illustrative ones. If the behaviour changes, rerun and update the tables and the example transcript together.
 
 ## Commands
 
@@ -94,7 +95,7 @@ python -m support_agent        # interactive chat against the live API (--reset-
 python -m support_agent --voice   # push-to-talk voice chat: hold SPACE to talk, N new conversation, Q or Esc to leave. Needs a microphone, GROQ_API_KEY and STT_MODEL in .env
 python -m support_agent.run_scenarios   # ten scripted conversations against the live API (costs ~$0.12 per full run)
 python -m support_agent.latency_report  # average and worst-case latency per voice stage, from logs/ (or pass log files / folders)
-python -m support_agent.run_voice_scenarios   # the ten scenarios as speech, no microphone, live APIs (about $0.15 of Claude per full run; --play to listen, --list, --make-audio to regenerate scenarios/audio/)
+python -m support_agent.run_voice_scenarios   # the ten scenarios as speech, no microphone, live APIs (roughly $0.10-0.15 of Claude per full run; exits 1 because two scenarios are known to fail; --play to listen, --list, --make-audio to regenerate scenarios/audio/)
 ```
 
 ## Layout
