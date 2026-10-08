@@ -2,7 +2,7 @@
 
 Portfolio project: a multilingual (Spanish, Japanese, English) customer support AI agent for a fictional online store. The owner is learning, so the goal is understanding as much as a working result.
 
-The text agent (phases 0-5) and the voice channel (phases 6-11) are finished. The voice work is on the `voice` branch, with a Pull Request to `main` open for the owner to review and merge (`gh pr view voice`).
+The text agent (phases 0-5) and the voice channel (phases 6-11) are finished. The voice channel was merged into `main` on 2026-10-07 at the owner's request (Pull Request #1, from the `voice` branch).
 
 ## Voice channel goal
 
@@ -41,7 +41,7 @@ Also:
 - Small, frequent commits inside each phase.
 - If something is ambiguous, ask instead of assuming.
 - At the end of each phase, update this file (these rules, the voice goal, phases done, next phase) so the work can continue in a new session without losing context.
-- Voice work happens on the `voice` branch. Its Pull Request to `main` was opened in phase 11. Merging is the owner's decision: never merge it or push to `main` yourself. Follow-up changes to the voice channel go on `voice` while the PR is open.
+- New work goes on its own branch, created from `main`, and reaches `main` through a Pull Request (`gh pr create`). Merging is the owner's decision: never merge a Pull Request or push to `main` unless the owner asks for it, as they did for the voice channel.
 
 ## Phases
 
@@ -81,7 +81,7 @@ Phases 0-5 (text agent) and phases 6-11 are complete. **Nothing is in progress.*
    - The two failures are the recogniser losing an email, not the agent: `ja_address_change` ("yuki" heard as "き") and `es_wrong_order_number_then_corrected` (the sentence with the email is dropped from the transcript). Both times the agent noticed and asked for the email again, but the scripted customer can only answer "yes". **Owner's decision (2026-10-07): leave them failing**, as documented limitations. Do not reword those spoken lines, change the customer voice or tune the prompt to make them pass. The runner therefore exits with code 1 on a full run; that is expected.
    - `ja_refund_window_expired` can pass without ever calling `request_refund` (the agent keeps confirming the email until the script ends), because its only expectation is `must_not_succeed`. Known weak check.
    - Not verified with a real voice: the silence level (default 200, from a room that measured about 70 and synthetic speech at about 5800). The owner should try it and adjust `VOICE_SILENCE_LEVEL` if their speech is rejected.
-11. (done) README and Pull Request: the README has a "Voice channel" section (Mermaid diagram of the voice flow, what changes on a call, handling of audio that was not understood, table of measured latencies, spoken scenarios), voice decisions and trade-offs (providers, why push-to-talk), voice limitations, and "Next steps" (streaming, barge-in, a real phone line, the eval system). The PR from `voice` to `main` is open.
+11. (done) README and Pull Request: the README has a "Voice channel" section (Mermaid diagram of the voice flow, what changes on a call, handling of audio that was not understood, table of measured latencies, spoken scenarios), voice decisions and trade-offs (providers, why push-to-talk), voice limitations, and "Next steps" (streaming, barge-in, a real phone line, the eval system). The PR from `voice` to `main` was merged on 2026-10-07.
    - README numbers come from real runs: do not replace them with illustrative ones. If the behaviour changes, rerun and update the tables and the example transcript together.
 
 ## Commands
