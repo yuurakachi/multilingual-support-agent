@@ -1,6 +1,9 @@
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+
+import pytest
 
 from support_agent.agent import AgentReply, ModelCall, ToolCall
 from support_agent.config import Settings
@@ -116,6 +119,54 @@ def test_turn_records_messages_tools_tokens_and_latency(tmp_path):
     ]
 
 
+def test_typed_turn_has_no_voice_data(tmp_path):
+    log = new_log(tmp_path)
+    log.record_turn("hello", reply_with_tool())
+
+    (turn,) = json.loads(log.save().read_text(encoding="utf-8"))["turns"]
+
+    assert turn["voice"] is None
+
+
+def test_spoken_turn_keeps_its_voice_data_and_later_additions(tmp_path):
+    log = new_log(tmp_path)
+    timings = {"stt": 900, "llm": 1800, "tts": None, "total": None}
+    voice = {"language": "ja", "recording_seconds": 4.2, "timings_ms": timings}
+    log.record_turn("注文はどこですか？", reply_with_tool(), voice=voice)
+    log.save()
+
+    # The text-to-speech time is only known after the turn was first saved.
+    timings.update(tts=1200, total=3950)
+    (turn,) = json.loads(log.save().read_text(encoding="utf-8"))["turns"]
+
+    assert turn["voice"] == {
+        "language": "ja",
+        "recording_seconds": 4.2,
+        "timings_ms": {"stt": 900, "llm": 1800, "tts": 1200, "total": 3950},
+    }
+
+
+def test_events_are_saved_with_where_they_happened(tmp_path):
+    log = new_log(tmp_path)
+    log.record_event("unheard_audio", reason="silence", level=40)
+    log.record_turn("hello", reply_with_tool())
+    log.record_event("unheard_audio", reason="no_words", level=900)
+
+    saved = json.loads(log.save().read_text(encoding="utf-8"))
+
+    assert [event["after_turn"] for event in saved["events"]] == [0, 1]
+    assert saved["events"][0]["type"] == "unheard_audio"
+    assert saved["events"][0]["reason"] == "silence"
+    assert saved["events"][0]["level"] == 40
+    assert saved["events"][0]["at"].startswith("2026-10-01T12:00:")
+
+
+def test_a_log_without_events_has_an_empty_list(tmp_path):
+    saved = json.loads(new_log(tmp_path).save().read_text(encoding="utf-8"))
+
+    assert saved["events"] == []
+
+
 def test_failed_turn_keeps_its_error(tmp_path):
     log = new_log(tmp_path)
     error = {"type": "APIConnectionError", "message": "Connection error.", "status_code": None}
@@ -187,6 +238,39 @@ def test_saving_again_updates_the_same_file(tmp_path):
     assert first_path == second_path
     assert [path.name for path in tmp_path.iterdir()] == [first_path.name]
     assert len(json.loads(second_path.read_text(encoding="utf-8"))["turns"]) == 2
+
+
+def test_saving_waits_when_the_file_is_briefly_locked(tmp_path, monkeypatch):
+    """On Windows an antivirus can hold the old file open for a moment."""
+    real_replace = os.replace
+    attempts = []
+
+    def locked_twice(source, target):
+        attempts.append(target)
+        if len(attempts) <= 2:
+            raise PermissionError(5, "Access is denied")
+        real_replace(source, target)
+
+    monkeypatch.setattr(os, "replace", locked_twice)
+    monkeypatch.setattr("support_agent.conversation_log.time.sleep", lambda seconds: None)
+    log = new_log(tmp_path)
+    log.record_turn("hello", reply_with_tool())
+
+    path = log.save()
+
+    assert len(attempts) == 3
+    assert len(json.loads(path.read_text(encoding="utf-8"))["turns"]) == 1
+
+
+def test_saving_gives_up_if_the_file_stays_locked(tmp_path, monkeypatch):
+    def always_locked(source, target):
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(os, "replace", always_locked)
+    monkeypatch.setattr("support_agent.conversation_log.time.sleep", lambda seconds: None)
+
+    with pytest.raises(PermissionError):
+        new_log(tmp_path).save()
 
 
 def test_each_conversation_gets_its_own_file(tmp_path):

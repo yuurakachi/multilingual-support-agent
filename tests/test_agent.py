@@ -5,7 +5,8 @@ import json
 from conftest import ALICE, YUKI
 from fakes import FailingClient, FakeClient, response, text, thinking, tool_use
 
-from support_agent.agent import FALLBACK_MESSAGE, SupportAgent
+from support_agent.agent import SupportAgent
+from support_agent.channels import FALLBACK_MESSAGE
 from support_agent.config import Settings
 from support_agent.prompts import SYSTEM_PROMPT
 from support_agent.tool_registry import TOOL_DEFINITIONS

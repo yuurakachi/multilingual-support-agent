@@ -1,7 +1,8 @@
-"""Interactive chat in the terminal.
+"""Interactive chat in the terminal: the interface of the text channel.
 
 Usage:
     python -m support_agent              start chatting
+    python -m support_agent --voice      talk instead of typing (see voice/chat.py)
     python -m support_agent --quiet      hide the tool and timing details
     python -m support_agent --reset-db   rebuild the simulated store first
 
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Callable
 
 from support_agent.agent import AgentReply, SupportAgent, build_agent
+from support_agent.channels import TEXT_CHANNEL, VOICE_CHANNEL
 from support_agent.config import ConfigError, load_settings
 from support_agent.conversation_log import DEFAULT_LOG_DIR, ConversationLog
 from support_agent.db import DEFAULT_DB_PATH, connect
@@ -109,6 +111,9 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m support_agent", description=f"Chat with the {STORE_NAME} support agent."
     )
     parser.add_argument(
+        "--voice", action="store_true", help="push-to-talk voice chat instead of typing"
+    )
+    parser.add_argument(
         "--quiet", action="store_true", help="hide tool calls, timings and token counts"
     )
     parser.add_argument(
@@ -139,12 +144,22 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Store database rebuilt at {DEFAULT_DB_PATH}")
 
     conn = connect()
+    # Same agent either way: only the channel and the interface around it change.
+    channel = VOICE_CHANNEL if args.voice else TEXT_CHANNEL
 
     def new_conversation() -> tuple[SupportAgent, ConversationLog]:
-        return build_agent(conn, settings), ConversationLog(settings, args.log_dir)
+        return (
+            build_agent(conn, settings, channel),
+            ConversationLog(settings, args.log_dir, channel=channel),
+        )
 
     try:
         print(f"Model: {settings.model}")
+        if args.voice:
+            # Imported only here, so the text chat runs without the audio packages.
+            from support_agent.voice.chat import start_voice_chat
+
+            return start_voice_chat(new_conversation, show_trace=not args.quiet)
         run_chat(new_conversation, show_trace=not args.quiet)
     finally:
         conn.close()

@@ -26,8 +26,8 @@ from typing import Callable
 
 import anthropic
 
+from support_agent.channels import TEXT_CHANNEL, Channel
 from support_agent.config import Settings, load_settings
-from support_agent.prompts import SYSTEM_PROMPT
 from support_agent.tool_registry import TOOL_DEFINITIONS, execute_tool
 
 # Ceiling for one model response (thinking included), not a target length.
@@ -38,17 +38,6 @@ USAGE_FIELDS = (
     "output_tokens",
     "cache_creation_input_tokens",
     "cache_read_input_tokens",
-)
-
-# Shown when the loop has to stop without an answer from the model. It cannot be
-# written in the customer's language by the model, so it carries all three.
-FALLBACK_MESSAGE = (
-    "Sorry, I could not complete your request. Please try again, or ask to speak with a "
-    "human agent.\n"
-    "Lo siento, no pude completar tu solicitud. Inténtalo de nuevo o pide hablar con un "
-    "agente humano.\n"
-    "申し訳ございません。ご依頼を完了できませんでした。もう一度お試しいただくか、"
-    "担当者との会話をご希望の旨をお伝えください。"
 )
 
 
@@ -108,15 +97,23 @@ class SupportAgent:
         conn: sqlite3.Connection,
         settings: Settings,
         clock: Callable[[], float] = time.perf_counter,
+        channel: Channel = TEXT_CHANNEL,
     ):
         self.client = client
         self.conn = conn
         self.settings = settings
+        # The only thing the agent knows about how the customer reaches it.
+        self.channel = channel
         self.messages: list[dict] = []
         self._clock = clock
 
-    def reply(self, user_text: str) -> AgentReply:
-        """Answer one customer message, calling tools as many times as needed."""
+    def reply(self, user_text: str, language: str | None = None) -> AgentReply:
+        """Answer one customer message, calling tools as many times as needed.
+
+        `language` ("es", "ja" or "en") is optional and only chooses the fallback
+        message, for channels that know which language the customer is using.
+        The model works out the reply language from the conversation by itself.
+        """
         started = self._clock()
         self.messages.append({"role": "user", "content": user_text})
 
@@ -125,8 +122,8 @@ class SupportAgent:
         if not reply.completed:
             # Recorded as the assistant's turn so the history stays well-formed
             # and the customer can keep chatting.
-            reply.text = FALLBACK_MESSAGE
-            self.messages.append({"role": "assistant", "content": FALLBACK_MESSAGE})
+            reply.text = self.channel.fallback_for(language)
+            self.messages.append({"role": "assistant", "content": reply.text})
 
         reply.latency_ms = self._elapsed_ms(started)
         return reply
@@ -174,7 +171,7 @@ class SupportAgent:
         request = {
             "model": self.settings.model,
             "max_tokens": MAX_TOKENS,
-            "system": SYSTEM_PROMPT,
+            "system": self.channel.system_prompt,
             "tools": TOOL_DEFINITIONS,
             "messages": self.messages,
             # Prompt caching: tools, system prompt and earlier turns are identical
@@ -238,9 +235,13 @@ def _text_of(content) -> str:
     return "\n".join(block.text for block in content if block.type == "text").strip()
 
 
-def build_agent(conn: sqlite3.Connection, settings: Settings | None = None) -> SupportAgent:
+def build_agent(
+    conn: sqlite3.Connection,
+    settings: Settings | None = None,
+    channel: Channel = TEXT_CHANNEL,
+) -> SupportAgent:
     """Create an agent that talks to the live API, configured from .env."""
     # Settings first: loading .env is what puts ANTHROPIC_API_KEY in the
     # environment, and the client reads it at the moment it is created.
     settings = settings or load_settings()
-    return SupportAgent(anthropic.Anthropic(), conn, settings)
+    return SupportAgent(anthropic.Anthropic(), conn, settings, channel=channel)

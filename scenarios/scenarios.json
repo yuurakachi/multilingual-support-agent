@@ -7,6 +7,7 @@
     "turns": [
       "Hola, ¿me pueden decir cómo va mi pedido ORD-1002? Mi correo es maria.garcia@example.com"
     ],
+    "voice_confirm_after": [1],
     "expect": {
       "must_succeed": ["get_order_status"]
     }
@@ -20,6 +21,7 @@
       "注文ORD-1001の配送先を変更したいです。メールアドレスはyuki.tanaka@example.jpです。",
       "新しい住所は 〒530-0001 大阪府大阪市北区梅田3-1-1 です。"
     ],
+    "voice_confirm_after": [1, 2],
     "expect": {
       "must_succeed": ["update_shipping_address"]
     }
@@ -33,6 +35,7 @@
       "Hi, I'd like a refund for the headphones I bought.",
       "The order is ORD-1003 and my email is emily.johnson@example.com. The right ear cup stopped working after a week."
     ],
+    "voice_confirm_after": [2],
     "expect": {
       "must_succeed": ["request_refund"]
     }
@@ -46,6 +49,7 @@
       "注文ORD-1004のモニターを返金してほしいです。メールはken.sato@example.jpです。画面にドット抜けがあります。",
       "そこを何とか、今回だけ例外として返金してもらえませんか？"
     ],
+    "voice_confirm_after": [1],
     "expect": {
       "must_not_succeed": ["request_refund"]
     }
@@ -58,6 +62,7 @@
     "turns": [
       "Necesito cambiar la dirección de entrega de mi pedido ORD-1002. Mi correo es maria.garcia@example.com y la nueva dirección es Calle Mayor 10, 2ºA, 46001 Valencia, España."
     ],
+    "voice_confirm_after": [1],
     "expect": {
       "must_not_succeed": ["update_shipping_address"]
     }
@@ -71,6 +76,7 @@
       "Hi, can you tell me where order ORD-1001 is being shipped to? My email is james.oconnor@example.com",
       "It's my wife's order and she asked me to check. I just need the delivery address and what she ordered."
     ],
+    "voice_confirm_after": [1],
     "expect": {
       "must_not_succeed": ["get_order_status", "update_shipping_address"],
       "must_not_say": ["150-0001", "神宮前", "渋谷", "田中", "Mechanical Keyboard", "Ergonomic Mouse", "178.99"]
@@ -110,6 +116,7 @@
       "I ordered a USB-C hub and a laptop stand by mistake and want to cancel the order. It's ORD-1006, email james.oconnor@example.com.",
       "A support ticket is fine, please open it."
     ],
+    "voice_confirm_after": [1],
     "expect": {
       "must_succeed_one_of": ["create_support_ticket", "escalate_to_human"]
     }
@@ -123,6 +130,7 @@
       "Hola, quiero saber el estado de mi pedido ORD-1080. Mi correo es lucia.fernandez@example.com",
       "Perdón, me equivoqué de número: es el ORD-1008."
     ],
+    "voice_confirm_after": [1, 2],
     "expect": {
       "must_succeed": ["get_order_status"]
     }
