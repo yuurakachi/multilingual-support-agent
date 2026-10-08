@@ -569,3 +569,7 @@ logs/                  conversation logs (generated, not committed)
 **An evaluation system built on the conversation logs.** More scenarios, repeated runs to measure variance, and graders for what the current checks cannot see: language adherence, accuracy of explanations, tone, and for voice, how often the read-back matched what the customer actually said.
 
 Smaller things the measurements point to: trying a lower thinking effort for voice, where every second is heard; a customer in the spoken scenarios that can repeat and spell; and a local speech-to-text and text-to-speech fallback for when the free services are down.
+
+## License
+
+[MIT](LICENSE). The store, its customers and its orders are fictional, and the sound files in `scenarios/audio/` are synthetic voices.
