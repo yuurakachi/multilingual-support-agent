@@ -39,7 +39,7 @@ from support_agent.latency_report import find_logs, format_report, load_voice_tu
 from support_agent.latency_report import summarize as summarize_latency
 from support_agent.run_scenarios import print_summary, summarize
 from support_agent.scenarios import DEFAULT_SCENARIOS_PATH, Scenario, ScenarioError, load_scenarios
-from support_agent.voice.chat import describe_problem, format_timings, speech_metadata
+from support_agent.voice.chat import describe_problem, format_timings
 from support_agent.voice.scenarios import (
     CUSTOMER_VOICES,
     DEFAULT_AUDIO_DIR,
@@ -227,10 +227,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     client = anthropic.Anthropic()
 
-    from support_agent.voice.stt_groq import GroqSpeechToText
-    from support_agent.voice.tts_edge import DEFAULT_VOICES, EdgeTextToSpeech
+    from support_agent.voice.providers import (
+        build_speech_to_text,
+        build_text_to_speech,
+        speech_metadata,
+    )
 
-    voices = {**DEFAULT_VOICES, **voice_settings.tts_voices}
     speaker = None
     if args.play:
         from support_agent.voice.audio import Speaker
@@ -243,12 +245,12 @@ def main(argv: list[str] | None = None) -> int:
         scenarios,
         client,
         settings,
-        GroqSpeechToText(voice_settings.groq_api_key, voice_settings.stt_model),
-        EdgeTextToSpeech(voices),
+        build_speech_to_text(voice_settings),
+        build_text_to_speech(voice_settings, warn=lambda message: print(f"  [text-to-speech] {message}")),
         args.log_dir / run_id,
         run_id,
         args.audio_dir,
-        metadata=speech_metadata(voice_settings, voices),
+        metadata=speech_metadata(voice_settings),
         silence_level=voice_settings.silence_level,
         speaker=speaker,
     )

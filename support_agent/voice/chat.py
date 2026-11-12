@@ -173,8 +173,11 @@ def start_voice_chat(new_conversation: NewConversation, show_trace: bool = True)
 
     from support_agent.voice.audio import Microphone, Speaker
     from support_agent.voice.keys import PushToTalkKey
-    from support_agent.voice.stt_groq import GroqSpeechToText
-    from support_agent.voice.tts_edge import DEFAULT_VOICES, EdgeTextToSpeech
+    from support_agent.voice.providers import (
+        build_speech_to_text,
+        build_text_to_speech,
+        speech_metadata,
+    )
 
     # The first time after a restart, Windows can take several seconds to wake the microphone.
     print("Preparing the microphone...")
@@ -186,10 +189,13 @@ def start_voice_chat(new_conversation: NewConversation, show_trace: bool = True)
         print(f"Audio problem: {error}", file=sys.stderr)
         return 1
 
-    stt = GroqSpeechToText(settings.groq_api_key, settings.stt_model)
-    voices = {**DEFAULT_VOICES, **settings.tts_voices}
-    tts = EdgeTextToSpeech(voices)
-    print(f"Speech-to-text: {settings.stt_model} (Groq). Text-to-speech: edge-tts.")
+    stt = build_speech_to_text(settings)
+    tts = build_text_to_speech(settings, warn=lambda message: print(f"  [text-to-speech] {message}"))
+    metadata = speech_metadata(settings)
+    print(
+        f"Speech-to-text: {metadata['stt_provider']} ({metadata['stt_model']}). "
+        f"Text-to-speech: {metadata['tts_provider']}."
+    )
     with microphone:
         run_voice_chat(
             new_conversation,
@@ -199,17 +205,8 @@ def start_voice_chat(new_conversation: NewConversation, show_trace: bool = True)
             tts,
             speaker,
             show_trace=show_trace,
-            metadata=speech_metadata(settings, voices),
+            metadata=metadata,
             silence_level=settings.silence_level,
         )
     return 0
 
-
-def speech_metadata(settings, voices: dict) -> dict:
-    """Which speech providers produced a conversation, for its log."""
-    return {
-        "stt_provider": "groq",
-        "stt_model": settings.stt_model,
-        "tts_provider": "edge-tts",
-        "tts_voices": dict(voices),
-    }

@@ -287,6 +287,8 @@ def test_the_answer_is_logged_timed_and_voiced(conn, tmp_path):
         "avg_logprob": -0.2,
         # Length of the reply the fake text-to-speech returned.
         "speech_seconds": 0.1,
+        # The fake has no name; real providers report "edge-tts" or "elevenlabs".
+        "tts_provider": None,
         "timings_ms": {
             "stt": 1500,
             # The agent times itself: the same number as the turn's latency.

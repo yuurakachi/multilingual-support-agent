@@ -24,6 +24,7 @@ from support_agent.config import DEFAULT_SILENCE_LEVEL
 from support_agent.conversation_log import ConversationLog
 from support_agent.voice.audio import Audio
 from support_agent.voice.speech import (
+    provider_name,
     LANGUAGES,
     SpeechError,
     SpeechToText,
@@ -205,6 +206,8 @@ class VoiceConversation:
             "level": heard.level,
             "avg_logprob": transcript.avg_logprob,
             "speech_seconds": None,
+            # Which service voiced the reply: with a fallback it can change mid-call.
+            "tts_provider": None,
             "timings_ms": timings,
         }
         # Saved as soon as the agent has answered, so the log survives if the
@@ -221,6 +224,7 @@ class VoiceConversation:
         # The reply is ready to play: the customer's wait ends here.
         timings["total"] = self._elapsed_ms(heard.recorded_at)
         voice["speech_seconds"] = round(speech.seconds, 2)
+        voice["tts_provider"] = provider_name(self.tts)
         self.log.save(self.agent.messages)
         return Answer(reply, speech, timings)
 
