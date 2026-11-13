@@ -2,7 +2,7 @@
 
 Portfolio project: a multilingual (Spanish, Japanese, English) customer support AI agent for a fictional online store. The owner is learning, so the goal is understanding as much as a working result.
 
-The text agent (phases 0-5) and the voice channel (phases 6-11) are finished. The voice channel was merged into `main` on 2026-10-07 at the owner's request (Pull Request #1, from the `voice` branch).
+The text agent (phases 0-5) and the voice channel (phases 6-11) are finished. The voice channel was merged into `main` on 2026-10-07 at the owner's request (Pull Request #1, from the `voice` branch). ElevenLabs was added as an optional voice and recogniser on 2026-11-13 (Pull Request #4).
 
 ## Voice channel goal
 
@@ -46,7 +46,7 @@ Also:
 
 ## Phases
 
-Phases 0-5 (text agent) and phases 6-11 are complete. **In progress: ElevenLabs as an optional voice and recogniser** (see below), on the `elevenlabs` branch with a Pull Request to `main` for the owner to merge. The eval system built on the conversation logs is still planned for after the voice channel.
+Phases 0-5 (text agent), phases 6-11 (voice channel) and the ElevenLabs option are complete. **Nothing is in progress.** Wait for the owner to say what is next. The eval system built on the conversation logs is still planned for after the voice channel.
 
 ### Text agent
 
@@ -62,14 +62,14 @@ Phases 0-5 (text agent) and phases 6-11 are complete. **In progress: ElevenLabs 
 4. (done) Ten scenario conversations (mixed languages: happy paths, out-of-policy requests, a customer trying to see someone else's order, a customer asking for a human) and a script that runs them and reports what happened.
 5. (done) Final README: what it does, Mermaid architecture diagram, how to run, design decisions and trade-offs, known limitations.
 
-### ElevenLabs, optional (branch `elevenlabs`, 2026-11)
+### ElevenLabs, optional (merged 2026-11-13, Pull Request #4)
 
 - Owner's decisions: optional with a fallback, not a replacement; edge-tts stays the default; Scribe tried as recogniser; voice "Jessica" (premade, `cgSgspJ2msm6clMCkdW9`) approved by ear. The owner's `.env` uses `TTS_PROVIDER=elevenlabs` and `STT_PROVIDER=groq`.
 - Free plan: no card, 10,000 credits a month shared by voice and recogniser; `eleven_flash_v2_5` costs about 0.5 credit per character, Scribe about 330 credits per minute. That is why it is never the default and why edge-tts must keep working as the fallback. Fits the zero-cost rule only while no payment method is added.
 - The key was written to `.env` by `npx -y @elevenlabs/cli@latest onboard init` (browser approval). That CLI then wants to install its SDK: not needed, both services are one HTTP call with `httpx2`. Its key has broad scopes.
 - Measured (3 spoken scenarios, both sides ElevenLabs, 10 turns): speech-to-text 0.74 s, text-to-speech 0.72 s, total wait 4.78 s average, against 2.10 / 2.45 / 7.39 with Groq and edge-tts. Scribe kept the emails Whisper garbled, so `es_wrong_order_number_then_corrected` passes with it; `ja_address_change` still fails (`ki.tanaka`). With the default providers the 8 of 10 result stands.
 - In November 2026 Microsoft started rejecting edge-tts 7.2.8 (HTTP 403); `requirements.txt` now needs 7.3.1. Expect this to happen again.
-- Known unrelated failure on `main`: `tests/test_scenarios.py::test_each_scenario_starts_from_a_fresh_store` depends on the real date; PR #3 (`fix/scenario-test-real-clock`, from another session) fixes it.
+- All 291 tests pass on `main` since Pull Request #3 froze the tools' clock in `test_each_scenario_starts_from_a_fresh_store` (see Conventions).
 
 ### Voice channel (branch `voice`)
 
@@ -145,7 +145,7 @@ python -m support_agent.run_voice_scenarios   # the ten scenarios as speech, no 
 ## Conventions
 
 - Tools take the SQLite connection as first argument and return a dict: `{"ok": True, ...}` or `{"ok": False, "error_code", "message"}`. Error codes are stable identifiers the evals will rely on; do not rename them casually.
-- Date-dependent tools accept a keyword-only `now` so tests never depend on the real clock.
+- Date-dependent tools accept a keyword-only `now` so tests never depend on the real clock. The agent's tool calls never pass `now`, so a test that seeds the store with a fixed `today` and lets the agent call a date-dependent tool must also freeze `support_agent.tools._utc_now` with `monkeypatch` (as `test_each_scenario_starts_from_a_fresh_store` does). Otherwise the test breaks weeks later, when the real date leaves the refund window.
 - Tool unit tests use the small hand-written store in `tests/conftest.py`, not the seed data.
 - Tests never call the real API: they script a `FakeClient` (`tests/fakes.py`). For a live check without typing, pipe lines into the chat: `printf '%s\n' "message" "/exit" | python -m support_agent`.
 - The conversation history is append-only and model turns are stored unchanged (`response.content`, thinking blocks included). Do not edit or strip earlier turns.
