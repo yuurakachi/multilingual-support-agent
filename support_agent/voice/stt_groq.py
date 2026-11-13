@@ -29,6 +29,8 @@ LANGUAGE_CODES = {
 
 
 class GroqSpeechToText:
+    name = "groq"
+
     def __init__(
         self,
         api_key: str,

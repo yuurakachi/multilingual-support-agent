@@ -46,7 +46,7 @@ Also:
 
 ## Phases
 
-Phases 0-5 (text agent) and phases 6-11 are complete. **Nothing is in progress.** Wait for the owner to say what is next. The eval system built on the conversation logs is still planned for after the voice channel.
+Phases 0-5 (text agent) and phases 6-11 are complete. **In progress: ElevenLabs as an optional voice and recogniser** (see below), on the `elevenlabs` branch with a Pull Request to `main` for the owner to merge. The eval system built on the conversation logs is still planned for after the voice channel.
 
 ### Text agent
 
@@ -61,6 +61,15 @@ Phases 0-5 (text agent) and phases 6-11 are complete. **Nothing is in progress.*
 3. (done) Interactive CLI and JSON conversation logging.
 4. (done) Ten scenario conversations (mixed languages: happy paths, out-of-policy requests, a customer trying to see someone else's order, a customer asking for a human) and a script that runs them and reports what happened.
 5. (done) Final README: what it does, Mermaid architecture diagram, how to run, design decisions and trade-offs, known limitations.
+
+### ElevenLabs, optional (branch `elevenlabs`, 2026-11)
+
+- Owner's decisions: optional with a fallback, not a replacement; edge-tts stays the default; Scribe tried as recogniser; voice "Jessica" (premade, `cgSgspJ2msm6clMCkdW9`) approved by ear. The owner's `.env` uses `TTS_PROVIDER=elevenlabs` and `STT_PROVIDER=groq`.
+- Free plan: no card, 10,000 credits a month shared by voice and recogniser; `eleven_flash_v2_5` costs about 0.5 credit per character, Scribe about 330 credits per minute. That is why it is never the default and why edge-tts must keep working as the fallback. Fits the zero-cost rule only while no payment method is added.
+- The key was written to `.env` by `npx -y @elevenlabs/cli@latest onboard init` (browser approval). That CLI then wants to install its SDK: not needed, both services are one HTTP call with `httpx2`. Its key has broad scopes.
+- Measured (3 spoken scenarios, both sides ElevenLabs, 10 turns): speech-to-text 0.74 s, text-to-speech 0.72 s, total wait 4.78 s average, against 2.10 / 2.45 / 7.39 with Groq and edge-tts. Scribe kept the emails Whisper garbled, so `es_wrong_order_number_then_corrected` passes with it; `ja_address_change` still fails (`ki.tanaka`). With the default providers the 8 of 10 result stands.
+- In November 2026 Microsoft started rejecting edge-tts 7.2.8 (HTTP 403); `requirements.txt` now needs 7.3.1. Expect this to happen again.
+- Known unrelated failure on `main`: `tests/test_scenarios.py::test_each_scenario_starts_from_a_fresh_store` depends on the real date; PR #3 (`fix/scenario-test-real-clock`, from another session) fixes it.
 
 ### Voice channel (branch `voice`)
 
@@ -93,6 +102,7 @@ pip install -r requirements.txt
 python -m support_agent.seed   # rebuild data/store.db from scratch
 pytest
 python -m support_agent        # interactive chat against the live API (--reset-db, --quiet)
+npx -y @elevenlabs/cli@latest onboard init   # only to get an ElevenLabs key into .env
 python -m support_agent --voice   # push-to-talk voice chat: hold SPACE to talk, N new conversation, Q or Esc to leave. Needs a microphone, GROQ_API_KEY and STT_MODEL in .env
 python -m support_agent.run_scenarios   # ten scripted conversations against the live API (costs ~$0.12 per full run)
 python -m support_agent.latency_report  # average and worst-case latency per voice stage, from logs/ (or pass log files / folders)
@@ -116,6 +126,8 @@ python -m support_agent.run_voice_scenarios   # the ten scenarios as speech, no 
   - `speech.py` — `SpeechToText` / `TextToSpeech` protocols, `Transcript`, `SpeechError`, `LANGUAGES`
   - `audio.py` — `Audio` (mono int16 + sample rate, `to_wav`, `from_encoded`), `Microphone` (stream kept open, `record_while(is_held)`), `Speaker`
   - `stt_groq.py` — `GroqSpeechToText`: one HTTP POST with `httpx2`, returns text and language
+  - `elevenlabs.py` — `ElevenLabsTextToSpeech` (raw `pcm_24000`, one multilingual voice) and `ElevenLabsSpeechToText` (Scribe; confidence is the average word `logprob`, not the same scale as Whisper's)
+  - `providers.py` — `build_speech_to_text`, `build_text_to_speech` (ElevenLabs is wrapped in a fallback to edge-tts) and `speech_metadata`, from `VoiceSettings`
   - `tts_edge.py` — `EdgeTextToSpeech`: one voice per language, MP3 decoded with `soundfile`
   - `keys.py` — `PushToTalkKey`: `wait()` -> TALK / NEW / QUIT, `is_held()`, `drain()`; Windows only
   - `pipeline.py` — `VoiceConversation`: `listen(audio)` -> `Heard`, `ask_to_repeat(heard)`, `answer(heard)` -> `Answer`. All the logic of a spoken turn, with no key, microphone or speaker
@@ -145,6 +157,7 @@ python -m support_agent.run_voice_scenarios   # the ten scenarios as speech, no 
 - Scenarios depend on the anchor orders ORD-1001..ORD-1008 in `seed.py`; a test fails if a scenario mentions an order or email the seed does not have.
 - The agent core is channel-independent. `SupportAgent.reply(text)` takes text and returns an `AgentReply`; it never reads input or produces output itself. Whatever depends on the channel goes in a `Channel` passed to both `SupportAgent` and `ConversationLog` (the same one to both), never in `agent.py`, `tools.py` or the shared policies of `prompts.py`. A new channel is a new `Channel` plus an interface that calls `reply()`.
 - Voice code never decides what to answer: it only turns sound into the text passed to `reply()` and the reply back into sound. `agent.reply(text, language=...)` takes the language only to choose the fallback message; it is not sent to the model.
+- Providers are chosen with `STT_PROVIDER` (`groq` | `elevenlabs`) and `TTS_PROVIDER` (`edge` | `elevenlabs`); their settings are only required for the chosen one. `FallbackTextToSpeech` in `speech.py` speaks with the backup when the primary raises, and each turn logs `voice.tts_provider`. Each provider class has a `name`.
 - Speech providers sit behind the `SpeechToText` / `TextToSpeech` protocols and raise `SpeechError`; the voice loop catches it and keeps the chat alive. Unit tests use fakes (`tests/test_voice_chat.py`) and never touch the microphone, the speaker or the network.
 - The speech-to-text model name comes from `STT_MODEL` in `.env`, like the Claude model.
 - Every turn in a log has a `voice` key: `null` for a typed turn, and for a spoken one `language`, `detected_language`, `recording_seconds`, `speech_seconds` and `timings_ms` with `stt`, `llm`, `tts`, `total`. `llm` is the agent's own `latency_ms`. `total` runs from the end of the recording (0.2 s after the key is released) until the reply audio is ready to play, so it is slightly more than the three stages added up. `tts` and `total` are `null` when text-to-speech failed. These names are part of the log contract.

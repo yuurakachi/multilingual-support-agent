@@ -6,6 +6,6 @@ pytest>=8.0
 numpy>=2.0          # audio samples
 sounddevice>=0.5    # microphone and speaker
 soundfile>=0.13     # decodes the MP3 that edge-tts returns
-edge-tts>=7.0       # text-to-speech (unofficial Microsoft Edge voices)
+edge-tts>=7.3.1     # text-to-speech (unofficial Microsoft Edge voices); 7.2.x is now rejected with 403
 httpx2>=2.0         # HTTP client, used directly for Groq speech-to-text
 truststore>=0.10    # verify HTTPS with the operating system's certificates

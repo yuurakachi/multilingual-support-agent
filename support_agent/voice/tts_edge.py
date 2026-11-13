@@ -50,6 +50,8 @@ def _fetch_mp3(text: str, voice: str, timeout_seconds: float) -> bytes:
 
 
 class EdgeTextToSpeech:
+    name = "edge-tts"
+
     def __init__(
         self,
         voices: Mapping[str, str] = DEFAULT_VOICES,
