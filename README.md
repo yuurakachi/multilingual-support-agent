@@ -215,10 +215,10 @@ flowchart TD
     mic(["Customer holds SPACE and speaks<br/>microphone, 16 kHz mono"])
     files(["Sound files in scenarios/audio/<br/>used by the spoken scenarios"])
     loud{"Loud enough<br/>to be speech?"}
-    stt["Speech-to-text · timed as stt<br/>Whisper on Groq<br/>returns text, language and confidence"]
+    stt["Speech-to-text · timed as stt<br/>Whisper on Groq, or ElevenLabs Scribe<br/>returns text, language and confidence"]
     understood{"Understood?<br/>has words, confident,<br/>Spanish, Japanese or English"}
     agent["SupportAgent.reply() · timed as llm<br/>same loop, tools and policies as the text chat<br/>voice system prompt"]
-    tts["Text-to-speech · timed as tts<br/>edge-tts, one native voice per language"]
+    tts["Text-to-speech · timed as tts<br/>edge-tts, or ElevenLabs with edge-tts as fallback"]
     repeat["Fixed request to say it again<br/>no model call"]
     speaker(["Speaker"])
     log["JSON log<br/>stage timings and unheard audio"]
@@ -238,9 +238,9 @@ flowchart TD
 ```
 
 1. **Record.** The microphone records while SPACE is held. The spoken scenarios feed sound files into the same place.
-2. **Check and transcribe.** A recording too quiet to be speech is never transcribed. Otherwise Whisper returns the text, the language and how confident it was, and the transcript is rejected if it has no words, was a guess, or is in a language the agent does not support.
+2. **Check and transcribe.** A recording too quiet to be speech is never transcribed. Otherwise the recogniser (Whisper on Groq by default, or ElevenLabs Scribe) returns the text, the language and how confident it was, and the transcript is rejected if it has no words, was a guess, or is in a language the agent does not support.
 3. **Answer.** The transcript goes to `SupportAgent.reply()`, exactly as a typed message would, with the voice version of the system prompt.
-4. **Speak.** The reply is read by a voice native to the language the customer is speaking.
+4. **Speak.** By default edge-tts reads the reply with a voice native to the language the customer is speaking. With ElevenLabs, one multilingual voice reads all three languages, and edge-tts takes over if ElevenLabs fails.
 
 The code for steps 2 to 4 is [`support_agent/voice/pipeline.py`](support_agent/voice/pipeline.py); the key, the microphone and the speaker are in [`chat.py`](support_agent/voice/chat.py) next to it.
 
@@ -428,8 +428,10 @@ Every conversation is saved to `logs/<timestamp>_<id>.json` and rewritten after 
       ],
       "voice": null                     // typed turn; a spoken turn looks like this:
       // "voice": { "language": "es", "detected_language": "es",
-      //            "recording_seconds": 10.06, "speech_seconds": 17.45,
-      //            "timings_ms": { "stt": 1306, "llm": 5616, "tts": 1295, "total": 8222 } }
+      //            "language_hint": "es",        // short clip: told which language to expect
+      //            "recording_seconds": 2.33, "level": 6611, "avg_logprob": -0.0,
+      //            "speech_seconds": 14.63, "tts_provider": "elevenlabs",
+      //            "timings_ms": { "stt": 601, "llm": 3485, "tts": 750, "total": 4842 } }
     }
   ],
   "events": [                           // outside any turn, e.g. audio nobody understood
@@ -537,7 +539,7 @@ They do not judge language, tone or whether an explanation was accurate. A model
 
 **Reading numbers aloud is left to the model.** The prompt asks for "O, R, D, one, zero, zero, two" and for dates and amounts in words, in the language being spoken. A text normaliser in code would be predictable, but it would need rules for three languages; the model already knows how each one says a date.
 
-**The voice follows the customer's language, and short answers inherit it.** Each text-to-speech voice is native to one language, so the reply uses the voice of the language the recogniser reported. A one-word answer is too short to identify, so clips under three seconds are transcribed in the language of the conversation. A customer who switches language has to do it with a full sentence.
+**The voice follows the customer's language, and short answers inherit it.** Each edge-tts voice is native to one language, so the reply uses the voice of the language the recogniser reported. ElevenLabs uses one voice for the three languages, but is still told the language, which decides how it reads numbers and dates. A one-word answer is too short to identify, so clips under three seconds are transcribed in the language of the conversation. A customer who switches language has to do it with a full sentence.
 
 **Test audio is synthetic and committed.** The customer's lines are generated once with text-to-speech and stored in the repository with a manifest of the text each came from, so the spoken scenarios run without a microphone and a changed scenario is detected. Synthetic speech is clean: no accents, hesitations or background noise. The recogniser still lost two emails out of ten conversations.
 
