@@ -141,6 +141,10 @@ Everything is read from `.env`, which is git-ignored.
 | `STT_MODEL` | Voice only. Speech-to-text model hosted by Groq. |
 | `TTS_VOICE_ES`, `TTS_VOICE_JA`, `TTS_VOICE_EN` | Voice only, optional. Replace the default text-to-speech voice of a language. |
 | `VOICE_SILENCE_LEVEL` | Voice only, optional. Recordings quieter than this are treated as silence (default 200). |
+| `TTS_PROVIDER` | Voice only, optional. `edge` (default) or `elevenlabs`. |
+| `STT_PROVIDER` | Voice only, optional. `groq` (default) or `elevenlabs`. |
+| `ELEVENLABS_API_KEY` | Only with ElevenLabs. Free key, no card needed. |
+| `ELEVENLABS_TTS_MODEL`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_STT_MODEL` | Only with ElevenLabs. The voice model, the voice, and the speech-to-text model. |
 
 ### Chat
 
@@ -192,7 +196,7 @@ python -m support_agent --voice
 
 Hold SPACE while you talk and release it to send. The answer is printed and read aloud. `N` starts a new conversation, `Q` or `Esc` leaves, and `--quiet`, `--reset-db` and `--log-dir` work as in the text chat.
 
-It needs a microphone, an internet connection, `GROQ_API_KEY` and `STT_MODEL` in `.env`, and Windows. How it works, how fast it is and how it is tested are described under [Voice channel](#voice-channel).
+It needs a microphone, an internet connection, `GROQ_API_KEY` and `STT_MODEL` in `.env`, and Windows. ElevenLabs can replace either side; see [ElevenLabs, optional](#elevenlabs-optional). How it works, how fast it is and how it is tested are described under [Voice channel](#voice-channel).
 
 ### Unit tests
 
@@ -200,7 +204,7 @@ It needs a microphone, an internet connection, `GROQ_API_KEY` and `STT_MODEL` in
 pytest
 ```
 
-268 tests, no API key, microphone or network needed: the agent, the chat and the scenario runner are tested against a scripted fake client, and the tools against a small hand-written store.
+291 tests, no API key, microphone or network needed: the agent, the chat and the scenario runner are tested against a scripted fake client, and the tools against a small hand-written store.
 
 ## Voice channel
 
@@ -315,6 +319,37 @@ python -m support_agent.latency_report PATH ...   # these log files or folders
 ```
 
 It prints the same tables as text, plus the slowest turn and the log it is in.
+
+### ElevenLabs, optional
+
+[ElevenLabs](https://elevenlabs.io) can take either side of the conversation: its voices can read the replies, and its recogniser, Scribe, can hear the customer. Its free plan needs no card and gives 10,000 credits a month, shared by both, which is why it is an option and not the default. Speaking costs about half a credit per character with the fast model (`eleven_flash_v2_5`), so the free plan covers roughly 20,000 characters of replies, and listening costs about 330 credits per minute of audio.
+
+```bash
+npx -y @elevenlabs/cli@latest onboard init   # signs in and writes ELEVENLABS_API_KEY to .env
+```
+
+Then, in `.env`:
+
+```bash
+TTS_PROVIDER=elevenlabs        # ElevenLabs speaks; edge-tts takes over whenever it fails
+STT_PROVIDER=elevenlabs        # Scribe hears instead of Whisper (optional)
+```
+
+The models and the voice also come from `.env` (see [`.env.example`](.env.example)). One premade voice reads all three languages. When ElevenLabs cannot speak, for example once the month's credits are used up, the reply is read by edge-tts instead of not being read at all, and the log notes which service voiced each turn (`voice.tts_provider`).
+
+Three of the spoken scenarios, run with ElevenLabs on both sides, compared with the full run above:
+
+| Stage, average (worst) | Groq + edge-tts, 27 turns | ElevenLabs on both sides, 10 turns |
+| ---------------------- | ------------------------: | ---------------------------------: |
+| Speech-to-text | 2.10 s (5.69 s) | 0.74 s (0.89 s) |
+| Agent | 2.84 s (5.46 s) | 3.30 s (9.84 s) |
+| Text-to-speech | 2.45 s (5.82 s) | 0.72 s (0.88 s) |
+| **Total wait** | **7.39 s (12.81 s)** | **4.78 s (11.46 s)** |
+
+Measured on 2026-11-13 with the same model and effort. The samples differ in size and in scenarios, so compare the speech stages rather than the totals. Hearing and speaking each dropped from more than two seconds to under one, and the wait from about seven seconds to under five. The worst ElevenLabs turn is the agent's first model call of the run (9.8 s), not ElevenLabs.
+
+Scribe also writes emails better. Over the twenty customer lines it kept the `@` that Whisper turned into "at" or dropped, and transcribed the sentence with the email that Whisper left out entirely, so `es_wrong_order_number_then_corrected` passes with Scribe. It still heard `yuki.tanaka` as `ki.tanaka`, so `ja_address_change` still fails, and it added an apostrophe to `james.oconnor`.
+
 
 ### Spoken scenarios (no microphone)
 
@@ -490,7 +525,9 @@ They do not judge language, tone or whether an explanation was accurate. A model
 
 **Three services in a row, not a speech-to-speech model.** Speech-to-text, the text agent, then text-to-speech. Everything built for the text chat is reused as it is, the logs stay readable text, and each stage can be measured and replaced on its own. The price is latency, since three network calls happen one after another, and the loss of everything in a voice that is not words: the agent cannot hear that a customer sounds upset, only read what they said.
 
-**Free providers: Whisper on Groq and edge-tts.** The voice channel had to cost nothing, which ruled out the paid services compared at the start (OpenAI, ElevenLabs, Deepgram). Groq's free tier needs no card, answers in a second or two, and reports the language it heard. `edge-tts` gives a natural voice native to each of the three languages without an account. Its weakness is that it is unofficial: it talks to the service behind Microsoft Edge's "Read aloud", which can change without notice. That is why both providers sit behind two small interfaces (`SpeechToText`, `TextToSpeech`): replacing one means writing one class. Local replacements (Whisper on the CPU, the voices installed with Windows) were considered as fallbacks and not built.
+**Free providers: Whisper on Groq and edge-tts.** The voice channel had to cost nothing, which ruled out the paid services compared at the start (OpenAI, Deepgram, and ElevenLabs' paid plans). Groq's free tier needs no card, answers in a second or two, and reports the language it heard. `edge-tts` gives a natural voice native to each of the three languages without an account. Its weakness is that it is unofficial: it talks to the service behind Microsoft Edge's "Read aloud", which can change without notice. That is why both providers sit behind two small interfaces (`SpeechToText`, `TextToSpeech`): replacing one means writing one class. It happened: in November 2026 Microsoft started rejecting the version of `edge-tts` in use, and every reply went unspoken until the library was upgraded. Local replacements (Whisper on the CPU, the voices installed with Windows) were considered as fallbacks and not built.
+
+**ElevenLabs as an option with a fallback, not as the default.** It is faster and sounds better, and its free plan needs no card, but the monthly credits run out after a few dozen conversations. So it is chosen in `.env`, and edge-tts reads the reply whenever ElevenLabs fails. A plainer voice is better than silence. Like Groq, it is called with one HTTP request, without the vendor's SDK.
 
 **Push-to-talk instead of an open microphone.** The key says exactly when the customer starts and stops talking. That removes three hard problems at once: deciding when someone has finished a sentence and is not just pausing, keeping the agent's own voice from being recorded through the speaker, and sending background noise to the recogniser. The price is that it does not feel like a phone call: it needs a keyboard and a hand, and the customer cannot interrupt. Reading the release of a key also tied this version to Windows.
 
@@ -522,12 +559,12 @@ They do not judge language, tone or whether an explanation was accurate. A model
 
 - **The customer waits about seven seconds for every answer**, and hears nothing meanwhile. Nothing is streamed: each stage finishes before the next one starts.
 - **The agent cannot be interrupted.** Replies lasted 16 seconds on average, and the key is ignored until the audio ends.
-- **Emails and addresses are fragile by voice.** In the spoken scenarios the recogniser lost an email twice, and a Japanese address "3-1-1" came back as "321". The agent asks again instead of guessing, but there is no better way to give an email than saying it again, such as spelling it letter by letter with a fixed alphabet.
+- **Emails and addresses are fragile by voice.** In the spoken scenarios Whisper lost an email twice, and a Japanese address "3-1-1" came back as "321". Scribe does better but still lost part of one email. The agent asks again instead of guessing, but there is no better way to give an email than saying it again, such as spelling it letter by letter with a fixed alphabet.
 - **Two of the ten spoken scenarios fail, and one passes by default**, for the reasons given above. A scripted customer can only say yes; it cannot repeat or spell.
 - **Tested with synthetic voices only**, apart from informal use by one person. Accents, hesitations, noisy rooms and telephone-quality audio are untested.
 - **The silence level is a fixed number**, set from one quiet room and never calibrated against real voices. A voice in the background that is loud enough, such as a television or another person, passes as the customer.
 - **A language switch said in under three seconds is transcribed in the old language.** Languages other than the three supported are rejected with a request to repeat.
-- **The speech services are free and best effort.** `edge-tts` is unofficial and may stop working; Groq's free tier limits how many requests can be made per minute and per day; both need an internet connection, and the customer's speech is sent to them.
+- **The speech services are free and best effort.** `edge-tts` is unofficial and has already stopped working once; ElevenLabs' free credits last a few dozen conversations a month; Groq's free tier limits how many requests can be made per minute and per day; both need an internet connection, and the customer's speech is sent to them.
 - **Windows only**, and the microphone stays open for the whole chat (only what is said while the key is held is kept).
 - **The voice prompt was tuned on the same ten scenarios it is tested with.** How it behaves on other requests is unknown.
 - **Recordings are not stored**, only their transcripts. Good for privacy, but a recognition error cannot be re-examined later.
@@ -545,7 +582,7 @@ support_agent/
   config.py            settings read from .env
   conversation_log.py  structured JSON log
   cli.py               entry point and terminal chat
-  voice/               push-to-talk voice chat: microphone, speech-to-text, text-to-speech,
+  voice/               push-to-talk voice chat: microphone, speech-to-text, text-to-speech (Groq, edge-tts, ElevenLabs),
                        the checks on what was heard, and the spoken scenarios
   scenarios.py         scenario loading, checks and execution
   run_scenarios.py     scenario runner
@@ -568,7 +605,7 @@ logs/                  conversation logs (generated, not committed)
 
 **An evaluation system built on the conversation logs.** More scenarios, repeated runs to measure variance, and graders for what the current checks cannot see: language adherence, accuracy of explanations, tone, and for voice, how often the read-back matched what the customer actually said.
 
-Smaller things the measurements point to: trying a lower thinking effort for voice, where every second is heard; a customer in the spoken scenarios that can repeat and spell; and a local speech-to-text and text-to-speech fallback for when the free services are down.
+Smaller things the measurements point to: trying a lower thinking effort for voice, where every second is heard; a customer in the spoken scenarios that can repeat and spell; and a local speech-to-text and text-to-speech fallback for when the free services are down: edge-tts now covers for ElevenLabs, but nothing covers for edge-tts, and nothing covers for the recogniser.
 
 ## License
 
