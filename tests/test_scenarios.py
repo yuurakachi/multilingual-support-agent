@@ -2,7 +2,7 @@
 
 import json
 import re
-from datetime import date
+from datetime import date, datetime, time, timezone
 
 import pytest
 from fakes import FailingClient, FakeClient, response, text, tool_use
@@ -227,7 +227,11 @@ def test_run_scenario_uses_seed_data_and_saves_a_labelled_log(tmp_path):
     assert saved["turns"][0]["user_message"] == STATUS_SCENARIO.turns[0]
 
 
-def test_each_scenario_starts_from_a_fresh_store(tmp_path):
+def test_each_scenario_starts_from_a_fresh_store(tmp_path, monkeypatch):
+    # The agent's tool calls carry no "now", so request_refund reads the clock.
+    # Freeze it on the seed date, or ORD-1003 leaves the refund window as time passes.
+    noon = datetime.combine(TODAY, time(12), tzinfo=timezone.utc)
+    monkeypatch.setattr("support_agent.tools._utc_now", lambda: noon)
     refund = Scenario(
         id="refund",
         language="en",
